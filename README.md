@@ -71,6 +71,12 @@ HttpPal is a comprehensive HTTP/WebSocket client plugin for JetBrains IDEs (prim
 - Environment integration for seamless JMeter compatibility
 - Direct integration with JMeter ecosystem for advanced load testing
 
+#### 📥 **Postman Integration**
+- Import collections from Postman .json files
+- Export requests and collections to Postman format
+- Seamless migration between Postman and HttpPal
+- Environment variable mapping between platforms
+
 ## Technical Stack
 
 - **Language**: Kotlin (with Java compatibility)
@@ -191,6 +197,5 @@ We welcome contributions! Please see our contributing guidelines for more inform
 
 ## Support
 
-- **Documentation**: [https://httppal.com/docs](https://httppal.com/docs)
 - **Issue Tracker**: [https://github.com/httppal/httppal-plugin/issues](https://github.com/httppal/httppal-plugin/issues)
-- **Email**: support@httppal.com
+- **Email**: zhangpjbo@gmail.com

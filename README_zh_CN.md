@@ -54,6 +54,12 @@ HttpPal 是一个为 JetBrains IDE 提供集成 API 测试功能的综合 HTTP/W
 - **环境集成**：在导出的测试计划中包含环境设置
 - **有效的 JMX 文件**：生成的文件可直接在 Apache JMeter 中执行
 
+### 📥 Postman 集成
+- **导入 Postman 集合**：从 Postman .json 文件导入集合
+- **导出到 Postman**：将请求和集合导出为 Postman 格式
+- **无缝迁移**：在 Postman 和 HttpPal 之间无缝迁移
+- **环境变量映射**：平台之间的环境变量映射
+
 ### 🎨 用户界面
 - **集成工具窗口**：带有选项卡界面的专用工具窗口
 - **上下文菜单**：代码编辑器和端点树中的右键操作
@@ -181,6 +187,6 @@ HttpPal 插件支持多种语言：
 
 ## 支持
 
-- **文档**：[https://httppal.com/docs](https://httppal.com/docs)
+
 - **问题反馈**：[https://github.com/httppal/httppal-plugin/issues](https://github.com/httppal/httppal-plugin/issues)
-- **邮箱**：support@httppal.com
+- **邮箱**：zhangpjbo@gmail.com
