@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<idea-plugin>
+    <id>com.httppal.plugin</id>
+    <name>HttpPal - HTTP/WebSocket Client</name>
+    <version>1.0.0</version>
+    <vendor email="support@httppal.com" url="https://httppal.com">HttpPal Team</vendor>
+    
+    <idea-version since-build="251" until-build="252.*"/>
+
+    <!-- Resource Bundle -->
+    <resource-bundle>messages.HttpPalBundle</resource-bundle>
+    <description><![CDATA[
+    HttpPal is a comprehensive HTTP/WebSocket client plugin for JetBrains IDEs that provides developers with
+    integrated API testing capabilities directly within their development environment.
+
+    <strong>Supports IntelliJ IDEA 2025.1 and 2025.2</strong>
+
+    Key Features:
+    • Automatic REST API endpoint discovery from Spring MVC and JAX-RS annotations
+    • Manual endpoint configuration with full HTTP method support (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)
+    • Integrated HTTP client with request/response display and syntax highlighting
+    • WebSocket connection management with real-time messaging capabilities
+    • Request history and favorites management for quick access to frequently used endpoints
+    • Concurrent execution engine for load testing with configurable thread pools
+    • Multi-environment support (development, staging, production) with base URLs and global headers
+    • Apache JMeter export functionality for advanced load testing scenarios
+    • Comprehensive error handling and validation with user-friendly feedback
+    • Project-level settings and global configuration management
+
+    Perfect for API developers, testers, and DevOps engineers who need integrated HTTP testing capabilities
+    without leaving their IDE. Supports both discovered endpoints from code and manually configured external APIs.
+
+    <strong>Requirements:</strong>
+    • IntelliJ IDEA 2025.1 or 2025.2
+    • JDK 17 or later
+    ]]></description>
+    
+    <change-notes></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <!--<depends>org.jetbrains.kotlin</depends>-->
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Application Services -->
+        <applicationService serviceInterface="com.httppal.service.HttpPalService" 
+                           serviceImplementation="com.httppal.service.impl.HttpPalServiceImpl"/>
+        <applicationService serviceInterface="com.httppal.service.FavoritesService"
+                           serviceImplementation="com.httppal.service.impl.FavoritesServiceImpl"/>
+        <applicationService serviceInterface="com.httppal.service.HistoryService"
+                           serviceImplementation="com.httppal.service.impl.HistoryServiceImpl"/>
+        <applicationService serviceInterface="com.httppal.service.RequestExecutionService"
+                           serviceImplementation="com.httppal.service.impl.RequestExecutionServiceImpl"/>
+        <applicationService serviceInterface="com.httppal.service.WebSocketService"
+                           serviceImplementation="com.httppal.service.impl.WebSocketServiceImpl"/>
+        <!--<applicationService serviceImplementation="com.httppal.service.SettingsExportImportService"/>-->
+        <applicationService serviceInterface="com.httppal.service.JMeterExportService"
+                           serviceImplementation="com.httppal.service.impl.JMeterExportServiceImpl"/>
+        
+        <!-- Project Services -->
+        <projectService serviceInterface="com.httppal.service.PostmanExportService"
+                       serviceImplementation="com.httppal.service.impl.PostmanExportServiceImpl"/>
+        <projectService serviceInterface="com.httppal.service.PostmanImportService"
+                       serviceImplementation="com.httppal.service.impl.PostmanImportServiceImpl"/>
+        <projectService serviceInterface="com.httppal.service.RequestTemplateService"
+                       serviceImplementation="com.httppal.service.impl.RequestTemplateServiceImpl"/>
+        <projectService serviceInterface="com.httppal.service.CurlParserService"
+                       serviceImplementation="com.httppal.service.impl.CurlParserServiceImpl"/>
+        <projectService serviceInterface="com.httppal.service.EnvironmentVariableResolver"
+                       serviceImplementation="com.httppal.service.impl.EnvironmentVariableResolverImpl"/>
+        <projectService serviceInterface="com.httppal.service.EndpointDiscoveryService"
+                       serviceImplementation="com.httppal.service.impl.EndpointDiscoveryServiceImpl"/>
+        <projectService serviceInterface="com.httppal.service.EnvironmentService"
+                       serviceImplementation="com.httppal.service.impl.EnvironmentServiceImpl"/>
+        
+        <!-- Tool Window -->
+        <toolWindow id="HttpPal" 
+                   secondary="false" 
+                   anchor="right" 
+                   factoryClass="com.httppal.ui.HttpPalToolWindowFactory"/>
+        
+        <!-- Settings -->
+        <applicationConfigurable 
+            parentId="tools" 
+            instance="com.httppal.settings.HttpPalConfigurable" 
+            id="com.httppal.settings" 
+            displayName="HttpPal"/>
+            
+        <!-- Persistent State Components -->
+        <applicationService serviceImplementation="com.httppal.settings.HttpPalSettings"/>
+        <!--<projectService serviceImplementation="com.httppal.settings.ProjectSettings"/>-->
+        
+        <!-- Notification Groups -->
+        <notificationGroup id="HttpPal.Plugin" displayType="BALLOON" key="httppal.notifications"/>
+        
+        <!-- File Type Associations - Removed as it's not needed for this plugin -->
+        
+        <!-- Startup Activity -->
+        <postStartupActivity implementation="com.httppal.startup.HttpPalStartupActivity"/>
+        
+        <!-- Error Reporter - Removed as it's optional -->
+        
+
+    </extensions>
+
+    <actions>
+        <!-- Main Actions Group in Tools Menu -->
+        <group id="HttpPal.MainGroup" text="HttpPal" description="HttpPal Actions" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            
+            <action id="HttpPal.OpenToolWindow" 
+                   class="com.httppal.action.OpenHttpPalToolWindowAction" 
+                   text="Open HttpPal" 
+                   description="Open the HttpPal tool window">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt H"/>
+            </action>
+            
+            <separator/>
+            
+            <action id="HttpPal.SendRequest" 
+                   class="com.httppal.action.SendRequestAction" 
+                   text="Send HTTP Request" 
+                   description="Open HttpPal and send HTTP request">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt S"/>
+            </action>
+            
+            <action id="HttpPal.RefreshEndpoints" 
+                   class="com.httppal.action.RefreshEndpointsAction" 
+                   text="Refresh Endpoints" 
+                   description="Refresh discovered API endpoints">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt R"/>
+            </action>
+
+            <separator/>
+            
+            <action id="HttpPal.OpenWebSocket" 
+                   class="com.httppal.action.OpenWebSocketAction" 
+                   text="Open WebSocket" 
+                   description="Open WebSocket connection interface">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt W"/>
+            </action>
+            
+            <action id="HttpPal.ViewHistory" 
+                   class="com.httppal.action.ViewHistoryAction" 
+                   text="View Request History" 
+                   description="View HTTP request history">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt Y"/>
+            </action>
+            
+            <separator/>
+            
+            <action id="HttpPal.ManageEnvironments" 
+                   class="com.httppal.action.OpenEnvironmentManagerAction" 
+                   text="Manage Environments" 
+                   description="Open environment management dialog">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt E"/>
+            </action>
+            
+            <separator/>
+            
+            <action id="HttpPal.ExportToJMeter" 
+                   class="com.httppal.action.ExportToJMeterAction" 
+                   text="Export to JMeter" 
+                   description="Export request configuration to JMeter .jmx file">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt J"/>
+            </action>
+            
+            <separator/>
+            
+            <action id="HttpPal.Settings" 
+                   class="com.httppal.action.OpenSettingsAction" 
+                   text="HttpPal Settings" 
+                   description="Open HttpPal plugin settings"/>
+        </group>
+        
+        <!-- Context Menu Actions for Editor -->
+        <group id="HttpPal.EditorContextGroup" text="HttpPal" description="HttpPal Context Actions" popup="true">
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="RunContextGroup"/>
+            
+            <action id="HttpPal.QuickTestEndpoint" 
+                   class="com.httppal.action.QuickTestEndpointAction" 
+                   text="Quick Test Endpoint" 
+                   description="Quick test API endpoint with popup selection">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift T"/>
+            </action>
+            
+            <action id="HttpPal.TestEndpointFromEditor" 
+                   class="com.httppal.action.TestEndpointFromEditorAction" 
+                   text="Test API Endpoint with HttpPal" 
+                   description="Test the API endpoint at cursor position using HttpPal"/>
+            
+            <action id="HttpPal.AddToFavorites" 
+                   class="com.httppal.action.AddEndpointToFavoritesAction" 
+                   text="Add to HttpPal Favorites" 
+                   description="Add this API endpoint to HttpPal favorites"/>
+        </group>
+        
+        <!-- General Context Menu Action -->
+        <group id="HttpPal.GeneralContextGroup">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            
+            <action id="HttpPal.TestEndpoint" 
+                   class="com.httppal.action.TestEndpointAction" 
+                   text="Test with HttpPal" 
+                   description="Test API endpoint using HttpPal"/>
+        </group>
+        
+        <!-- Toolbar Actions -->
+        <group id="HttpPal.ToolbarGroup" 
+               class="com.httppal.action.HttpPalToolbarActionGroup" 
+               text="HttpPal Toolbar" 
+               description="HttpPal toolbar actions">
+            <add-to-group group-id="MainToolBar" anchor="after" relative-to-action="RunnerActions"/>
+        </group>
+        
+        <!-- Navigation Bar Actions -->
+        <group id="HttpPal.NavigationGroup" text="HttpPal">
+            <add-to-group group-id="NavBarToolBar" anchor="last"/>
+            
+            <action id="HttpPal.QuickOpen" 
+                   class="com.httppal.action.OpenHttpPalToolWindowAction" 
+                   text="HttpPal" 
+                   description="Quick access to HttpPal"/>
+        </group>
+    </actions>
+</idea-plugin>
