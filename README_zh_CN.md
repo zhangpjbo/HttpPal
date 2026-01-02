@@ -188,5 +188,5 @@ HttpPal 插件支持多种语言：
 ## 支持
 
 
-- **问题反馈**：[https://github.com/httppal/httppal-plugin/issues](https://github.com/httppal/httppal-plugin/issues)
+- **问题反馈**：[https://github.com/httppal/issues](https://github.com/httppal/issues)
 - **邮箱**：zhangpjbo@gmail.com
