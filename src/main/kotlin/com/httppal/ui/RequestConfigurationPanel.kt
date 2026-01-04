@@ -66,6 +66,18 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
     private val timeoutSpinner = JSpinner(SpinnerNumberModel(30, 1, 300, 1))
     private val followRedirectsCheckBox = JCheckBox(HttpPalBundle.message("form.request.follow.redirects"), true)
     
+    // New parameter panels (Postman-style)
+    private val queryParametersPanel = QueryParametersPanel(project)
+    private val pathParametersPanel = PathParametersPanel(project)
+    private val formDataPanel = FormDataPanel(project)
+    
+    // Tabbed pane for request configuration
+    private val requestTabbedPane = com.intellij.ui.components.JBTabbedPane()
+    
+    // Body type selector
+    private val bodyTypeComboBox = JComboBox(arrayOf("none", "raw", "form-data"))
+    private val bodyCardPanel = JPanel(CardLayout())
+    
     // Mock data generation service
     private val mockDataGeneratorService = project.service<com.httppal.service.MockDataGeneratorService>()
     
@@ -162,6 +174,8 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         
         // Setup EnhancedUrlField callbacks
         enhancedUrlField.onUrlChanged = { url ->
+            // Update path parameters when URL changes
+            pathParametersPanel.updateFromUrl(url)
             // Update validation when URL changes
             validateForm()
         }
@@ -171,31 +185,53 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         
         mainPanel.add(enhancedUrlField, gbc)
         
-        // Request options panel
+        // Path Parameters section (auto-shows when URL contains {param})
         gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.HORIZONTAL
+        pathParametersPanel.onParametersChanged = { params ->
+            // Update URL when path parameters change
+            val currentUrl = enhancedUrlField.getText()
+            val updatedUrl = pathParametersPanel.applyToUrl(currentUrl)
+            if (updatedUrl != currentUrl) {
+                enhancedUrlField.setText(updatedUrl)
+            }
+        }
+        mainPanel.add(pathParametersPanel, gbc)
+        
+        // Request options panel
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.HORIZONTAL
         val optionsPanel = createOptionsPanel()
         mainPanel.add(optionsPanel, gbc)
         
-        // Headers section
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        val headersLabel = JBLabel(HttpPalBundle.message("request.headers.label"))
-        headersLabel.font = headersLabel.font.deriveFont(Font.BOLD, 13f)
-        mainPanel.add(headersLabel, gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.BOTH; gbc.weightx = 1.0; gbc.weighty = 0.3
-        val headersPanel = createHeadersPanel()
-        mainPanel.add(headersPanel, gbc)
+        // Tabbed pane for Params/Headers/Body
+        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.BOTH
+        gbc.weightx = 1.0; gbc.weighty = 0.6
         
-        // Request body section
-        gbc.gridx = 0; gbc.gridy = 4; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0; gbc.weighty = 0.0
-        val bodyLabel = JBLabel(HttpPalBundle.message("request.body.label"))
-        bodyLabel.font = bodyLabel.font.deriveFont(Font.BOLD, 13f)
-        mainPanel.add(bodyLabel, gbc)
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.BOTH; gbc.weightx = 1.0; gbc.weighty = 0.4
-        val bodyPanel = createBodyPanel()
-        mainPanel.add(bodyPanel, gbc)
+        // Setup query parameters callback
+        queryParametersPanel.onParametersChanged = { params ->
+            // Update URL when query parameters change
+            val baseUrl = enhancedUrlField.getText().split("?")[0]
+            val newUrl = queryParametersPanel.appendToUrl(baseUrl)
+            if (newUrl != enhancedUrlField.getText()) {
+                enhancedUrlField.setText(newUrl)
+            }
+        }
+        
+        // Create headers panel
+        val headersPanel = createHeadersPanel()
+        
+        // Create body panel with type selector
+        val bodyPanelContainer = createBodyPanelWithTypes()
+        
+        // Add tabs
+        requestTabbedPane.addTab("Params", queryParametersPanel)
+        requestTabbedPane.addTab("Headers", headersPanel)
+        requestTabbedPane.addTab("Body", bodyPanelContainer)
+        
+        mainPanel.add(requestTabbedPane, gbc)
         
         // Concurrent execution section
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.BOTH; gbc.weightx = 1.0; gbc.weighty = 0.3
+        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.BOTH
+        gbc.weightx = 1.0; gbc.weighty = 0.3
         setupConcurrentExecutionPanel()
         mainPanel.add(concurrentExecutionPanel, gbc)
         
@@ -305,6 +341,53 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         panel.add(editorPanel, BorderLayout.CENTER)
         
         return panel
+    }
+    
+    /**
+     * Create body panel with type selector supporting raw text and form-data
+     */
+    private fun createBodyPanelWithTypes(): JPanel {
+        val container = JPanel(BorderLayout())
+        container.border = JBUI.Borders.empty()
+        
+        // Top panel with body type selector
+        val topPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 5))
+        topPanel.add(JBLabel("Body type:"))
+        
+        bodyTypeComboBox.addActionListener {
+            val cardLayout = bodyCardPanel.layout as CardLayout
+            when (bodyTypeComboBox.selectedItem as String) {
+                "none" -> cardLayout.show(bodyCardPanel, "none")
+                "raw" -> cardLayout.show(bodyCardPanel, "raw")
+                "form-data" -> cardLayout.show(bodyCardPanel, "form-data")
+            }
+            validateForm()
+        }
+        topPanel.add(bodyTypeComboBox)
+        
+        container.add(topPanel, BorderLayout.NORTH)
+        
+        // Body content panel with CardLayout
+        bodyCardPanel.layout = CardLayout()
+        
+        // None panel (empty)
+        val nonePanel = JPanel()
+        nonePanel.add(JBLabel("This request does not have a body"))
+        bodyCardPanel.add(nonePanel, "none")
+        
+        // Raw body panel (existing editor)
+        val rawBodyPanel = createBodyPanel()
+        bodyCardPanel.add(rawBodyPanel, "raw")
+        
+        // Form-data panel (new)
+        bodyCardPanel.add(formDataPanel, "form-data")
+        
+        // Set default to "none"
+        bodyTypeComboBox.selectedItem = "none"
+        
+        container.add(bodyCardPanel, BorderLayout.CENTER)
+        
+        return container
     }
     
     private fun createBodyEditor(): EditorEx {
@@ -948,8 +1031,38 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         } else {
             headers
         }
+        // Get query and path parameters from panels
+        val queryParams = queryParametersPanel.getParameters()
+        val pathParams = pathParametersPanel.getParameters()
         
-        val body = bodyEditor.document.text.takeIf { it.isNotBlank() }
+        // Determine body content based on body type
+        var bodyContent: String? = null
+        var formData: List<com.httppal.model.FormDataEntry>? = null
+        
+        when (bodyTypeComboBox.selectedItem as String) {
+            "raw" -> {
+                bodyContent = bodyEditor.document.text.takeIf { it.isNotBlank() }
+            }
+            "form-data" -> {
+                // Convert FormDataPanel entries to FormDataEntry model
+                formData = formDataPanel.getFormData().map { entry ->
+                    if (entry.type == FormDataPanel.FormDataType.FILE) {
+                        com.httppal.model.FormDataEntry.file(
+                            key = entry.key,
+                            filePath = entry.value,
+                            contentType = entry.contentType
+                        )
+                    } else {
+                        com.httppal.model.FormDataEntry.text(
+                            key = entry.key,
+                            value = entry.value
+                        )
+                    }
+                }
+            }
+            // "none" leaves both null
+        }
+        
         val timeout = Duration.ofSeconds((timeoutSpinner.value as Int).toLong())
         val followRedirects = followRedirectsCheckBox.isSelected
         
@@ -957,9 +1070,12 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
             method = method,
             url = url,
             headers = finalHeaders,
-            body = body,
+            body = bodyContent,
             timeout = timeout,
-            followRedirects = followRedirects
+            followRedirects = followRedirects,
+            queryParameters = queryParams,
+            pathParameters = pathParams,
+            formData = formData
         )
     }
     
@@ -1029,16 +1145,34 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         updateEndpointDetailsPanel(endpoint)
         
         methodComboBox.selectedItem = endpoint.method
-        enhancedUrlField.setText(endpoint.path)  // Use enhancedUrlField instead of urlTextField
+        enhancedUrlField.setText(endpoint.path)
+        
+        // Update path parameters from URL
+        pathParametersPanel.updateFromUrl(endpoint.path)
+        
+        // Update query parameters from URL
+        queryParametersPanel.syncFromUrl(endpoint.path)
         
         // Clear existing headers and add any endpoint-specific headers
         clearAllHeaders()
         
-        // Add path parameters as headers for visibility (user can modify)
+        // Add parameters to panels/headers
         endpoint.parameters.forEach { param ->
-            if (param.type == ParameterType.HEADER) {
-                val model = headersTable.model as DefaultTableModel
-                model.addRow(arrayOf(param.name, param.defaultValue ?: ""))
+            when (param.type) {
+                ParameterType.HEADER -> {
+                    val model = headersTable.model as DefaultTableModel
+                    model.addRow(arrayOf(param.name, param.defaultValue ?: ""))
+                }
+                ParameterType.QUERY -> {
+                    // Update query params panel if needed (usually synced from URL)
+                }
+                ParameterType.PATH -> {
+                    // Update path params panel values if default exists
+                    if (param.defaultValue != null) {
+                        pathParametersPanel.setParameters(mapOf(param.name to param.defaultValue))
+                    }
+                }
+                else -> {}
             }
         }
         
@@ -1064,16 +1198,42 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         hideEndpointDetailsPanel()
         
         methodComboBox.selectedItem = request.method
-        enhancedUrlField.setText(request.url)  // Use enhancedUrlField instead of urlTextField
+        enhancedUrlField.setText(request.url)
         timeoutSpinner.value = request.timeout.seconds.toInt()
         followRedirectsCheckBox.isSelected = request.followRedirects
         
-        // Set body
-        // Use ApplicationManager to run document modification in write action
-        ApplicationManager.getApplication().invokeLater {
-            ApplicationManager.getApplication().runWriteAction {
-                bodyEditor.document.setText(request.body ?: "")
+        // Populate path and query parameters panels
+        pathParametersPanel.updateFromUrl(request.url)
+        pathParametersPanel.setParameters(request.pathParameters)
+        queryParametersPanel.syncFromUrl(request.url)
+        // If we have specific query parameters (e.g. from history), apply them
+        if (request.queryParameters.isNotEmpty()) {
+            queryParametersPanel.setParameters(request.queryParameters)
+        }
+        
+        // Set body based on type
+        if (request.formData != null && request.formData!!.isNotEmpty()) {
+            bodyTypeComboBox.selectedItem = "form-data"
+            val uiEntries = request.formData!!.map { entry ->
+                FormDataPanel.FormDataEntry(
+                    enabled = true,
+                    key = entry.key,
+                    value = entry.value,
+                    type = if (entry.isFile) FormDataPanel.FormDataType.FILE else FormDataPanel.FormDataType.TEXT,
+                    contentType = entry.contentType
+                )
             }
+            formDataPanel.setFormData(uiEntries)
+        } else if (request.body != null && request.body!!.isNotBlank()) {
+            bodyTypeComboBox.selectedItem = "raw"
+            // Use ApplicationManager to run document modification in write action
+            ApplicationManager.getApplication().invokeLater {
+                ApplicationManager.getApplication().runWriteAction {
+                    bodyEditor.document.setText(request.body!!)
+                }
+            }
+        } else {
+            bodyTypeComboBox.selectedItem = "none"
         }
         
         // Set headers
@@ -1651,25 +1811,17 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
             
             // 在 EDT 线程中更新 UI
             ApplicationManager.getApplication().invokeLater {
-                // Fill path parameters into URL
-                var url = enhancedUrlField.getText()
-                mockData.pathParameters.forEach { (name, value) ->
-                    url = url.replace("{$name}", value)
-                }
+                // Populate path parameters panel
+                pathParametersPanel.updateFromUrl(endpoint.path)
+                pathParametersPanel.setParameters(mockData.pathParameters)
                 
-                // Fill query parameters into URL
-                if (mockData.queryParameters.isNotEmpty()) {
-                    val queryString = mockData.queryParameters.entries.joinToString("&") { (key, value) ->
-                        "$key=$value"
-                    }
-                    url = if (url.contains("?")) {
-                        "$url&$queryString"
-                    } else {
-                        "$url?$queryString"
-                    }
-                }
+                // Populate query parameters panel
+                queryParametersPanel.setParameters(mockData.queryParameters)
                 
-                // 更新 URL 字段
+                // Update URL (applying path and query params)
+                var url = endpoint.path
+                url = pathParametersPanel.applyToUrl(url)
+                url = queryParametersPanel.appendToUrl(url)
                 enhancedUrlField.setText(url)
                 
                 // Fill headers
@@ -1688,25 +1840,22 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
                 headersTable.repaint()
                 
                 // Fill request body if available
-                mockData.body?.let { body ->
+                if (mockData.body != null && mockData.body!!.isNotBlank()) {
+                    bodyTypeComboBox.selectedItem = "raw"
                     // Format JSON for better readability
                     val formattedBody = try {
-                        // Use Jackson for proper JSON formatting
                         val mapper = com.fasterxml.jackson.databind.ObjectMapper()
-                        val jsonNode = mapper.readTree(body)
+                        val jsonNode = mapper.readTree(mockData.body!!)
                         mapper.writerWithDefaultPrettyPrinter().writeValueAsString(jsonNode)
                     } catch (e: Exception) {
-                        // Fallback to simple formatting
-                        body.replace(",", ",\n  ")
-                            .replace("{", "{\n  ")
-                            .replace("}", "\n}")
-                            .replace("[", "[\n  ")
-                            .replace("]", "\n]")
+                        mockData.body!!
                     }
                     
                     ApplicationManager.getApplication().runWriteAction {
                         bodyEditor.document.setText(formattedBody)
                     }
+                } else {
+                    bodyTypeComboBox.selectedItem = "none"
                 }
                 
                 // 强制刷新整个面板

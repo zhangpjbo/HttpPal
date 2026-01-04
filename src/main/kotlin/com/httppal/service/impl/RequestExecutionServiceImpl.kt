@@ -617,6 +617,11 @@ class RequestExecutionServiceImpl : RequestExecutionService {
             return null
         }
         
+        // Handle multipart/form-data with files
+        if (config.formData != null && config.formData.isNotEmpty()) {
+            return createMultipartBody(config.formData)
+        }
+        
         // If no body content, return null for DELETE or empty body for others
         if (!config.hasBody()) {
             return if (config.method == HttpMethod.DELETE) {
@@ -653,6 +658,48 @@ class RequestExecutionServiceImpl : RequestExecutionService {
         }
         
         return processedBody.toRequestBody(contentType.toMediaType())
+    }
+    
+    /**
+     * Create multipart/form-data body for file uploads
+     */
+    private fun createMultipartBody(formData: List<com.httppal.model.FormDataEntry>): RequestBody {
+        val builder = MultipartBody.Builder().setType(MultipartBody.FORM)
+        
+        formData.forEach { entry ->
+            if (entry.isFile) {
+                // File upload
+                val file = java.io.File(entry.value)
+                if (file.exists() && file.canRead()) {
+                    val mediaType = (entry.contentType ?: "application/octet-stream").toMediaType()
+                    val fileName = entry.fileName ?: file.name
+                    val fileBody = okhttp3.RequestBody.Companion.create(mediaType, file)
+                    builder.addFormDataPart(entry.key, fileName, fileBody)
+                    
+                    LoggingUtils.logWithContext(
+                        LoggingUtils.LogLevel.DEBUG,
+                        "Adding file to multipart request",
+                        mapOf(
+                            "key" to entry.key,
+                            "fileName" to fileName,
+                            "contentType" to (entry.contentType ?: "application/octet-stream"),
+                            "fileSize" to file.length()
+                        )
+                    )
+                } else {
+                    LoggingUtils.logWithContext(
+                        LoggingUtils.LogLevel.WARN,
+                        "Skipping file that cannot be read",
+                        mapOf("key" to entry.key, "path" to entry.value)
+                    )
+                }
+            } else {
+                // Text field
+                builder.addFormDataPart(entry.key, entry.value)
+            }
+        }
+        
+        return builder.build()
     }
     
     /**

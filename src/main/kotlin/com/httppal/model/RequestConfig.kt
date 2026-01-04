@@ -13,7 +13,8 @@ data class RequestConfig(
     val timeout: Duration = Duration.ofSeconds(30),
     val followRedirects: Boolean = true,
     val queryParameters: Map<String, String> = emptyMap(),
-    val pathParameters: Map<String, String> = emptyMap()
+    val pathParameters: Map<String, String> = emptyMap(),
+    val formData: List<FormDataEntry>? = null  // For multipart/form-data with file uploads
 ) {
     /**
      * Merge with global headers, with request headers taking precedence

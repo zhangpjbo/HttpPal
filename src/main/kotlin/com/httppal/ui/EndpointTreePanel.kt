@@ -10,9 +10,15 @@ import com.httppal.service.HttpPalService
 import com.httppal.util.ErrorHandler
 import com.httppal.util.HttpPalBundle
 import com.httppal.util.LoggingUtils
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.ScrollType
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -794,6 +800,13 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         when (val userObject = node.userObject) {
             is DiscoveredEndpoint -> {
                 // Single endpoint actions
+                val jumpToSourceAction = JMenuItem(HttpPalBundle.message("context.jump.to.source"))
+                jumpToSourceAction.addActionListener {
+                    navigateToSource(userObject)
+                }
+                popup.add(jumpToSourceAction)
+                popup.addSeparator()
+                
                 val loadAction = JMenuItem(HttpPalBundle.message("context.load.request"))
                 loadAction.addActionListener {
                     onEndpointSelectedCallback?.invoke(userObject)
@@ -829,6 +842,50 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         
         if (popup.componentCount > 0) {
             popup.show(tree, e.x, e.y)
+        }
+    }
+    
+    /**
+     * Navigate to the source code of the endpoint
+     */
+    private fun navigateToSource(endpoint: DiscoveredEndpoint) {
+        val virtualFile = LocalFileSystem.getInstance().findFileByPath(endpoint.sourceFile)
+        if (virtualFile == null) {
+            // Show notification if file not found
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("HttpPal.Notifications")
+                .createNotification(
+                    "Source Not Found",
+                    "Source file not found: ${endpoint.sourceFile}",
+                    NotificationType.WARNING
+                )
+                .notify(project)
+            return
+        }
+        
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                // Open file and navigate to line
+                val fileEditorManager = FileEditorManager.getInstance(project)
+                val editor = fileEditorManager.openTextEditor(
+                    OpenFileDescriptor(project, virtualFile, endpoint.lineNumber - 1, 0),
+                    true
+                )
+                
+                if (editor != null) {
+                    // Scroll to center and make line visible
+                    editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
+                }
+            } catch (e: Exception) {
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup("HttpPal.Notifications")
+                    .createNotification(
+                        "Navigation Error",
+                        "Failed to navigate to source: ${e.message}",
+                        NotificationType.ERROR
+                    )
+                    .notify(project)
+            }
         }
     }
     
