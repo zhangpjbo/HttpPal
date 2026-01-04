@@ -11,10 +11,12 @@ HttpPal is a comprehensive HTTP/WebSocket client plugin for JetBrains IDEs (prim
 ## Key Features
 
 #### 🔍 **Automatic API Discovery**
-- Automatically scans Java projects to discover REST API endpoints
+- Automatically scans Java/Kotlin projects to discover REST API endpoints
 - Supports Spring MVC annotations (@RequestMapping, @GetMapping, @PostMapping, etc.)
 - Supports JAX-RS annotations (@GET, @POST, @PUT, @DELETE, @PATCH)
+- OpenAPI/Swagger specification parsing for external APIs
 - Real-time endpoint discovery with source code changes
+- **Jump to Source**: Right-click any endpoint to navigate directly to code
 
 #### 🛠️ **Manual Endpoint Management**
 - Add and edit API endpoints manually
@@ -27,6 +29,12 @@ HttpPal is a comprehensive HTTP/WebSocket client plugin for JetBrains IDEs (prim
 - Intuitive request configuration interface
 - Support for all HTTP methods (GET, POST, PUT, DELETE, PATCH)
 - Real-time response display with syntax highlighting
+
+#### 📝 **Request Parameters Panel** *(NEW)*
+- Postman-style query parameters table with enable/disable toggles
+- Automatic path parameter detection from URL patterns `{id}`
+- Bi-directional sync between URL and parameters panel
+- Form-data body support with multi-file upload
 
 #### 🔌 **WebSocket Support**
 - Full WebSocket client functionality

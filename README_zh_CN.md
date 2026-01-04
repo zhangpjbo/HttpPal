@@ -13,8 +13,10 @@ HttpPal 是一个为 JetBrains IDE 提供集成 API 测试功能的综合 HTTP/W
 ### 🔍 自动端点发现
 - **Spring MVC 支持**：自动发现 `@RequestMapping`、`@GetMapping`、`@PostMapping`、`@PutMapping`、`@DeleteMapping` 和 `@PatchMapping` 注解的 REST 端点
 - **JAX-RS 支持**：检测 `@GET`、`@POST`、`@PUT`、`@DELETE` 和 `@PATCH` 注解的端点
+- **OpenAPI 支持**：解析 OpenAPI/Swagger 规范文件
 - **实时更新**：源代码更改时自动刷新端点列表
 - **有序显示**：按控制器/资源类分组显示端点，便于组织管理
+- **跳转到源代码**：右键点击端点即可直接导航至代码定义处
 
 ### 🌐 HTTP 客户端
 - **完整的 HTTP 方法支持**：GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS
@@ -22,6 +24,12 @@ HttpPal 是一个为 JetBrains IDE 提供集成 API 测试功能的综合 HTTP/W
 - **响应显示**：格式化的响应体，支持 JSON/XML 语法高亮
 - **请求验证**：实时验证，提供清晰的错误消息
 - **超时配置**：可配置的请求超时和重定向处理
+
+### 📝 请求参数面板 *(新功能)*
+- **查询参数表格**：Postman 风格的查询参数表格，支持启用/禁用切换
+- **路径参数**：自动检测 URL 中的 `{id}` 模式并提供输入字段
+- **双向同步**：URL 与参数面板之间实时同步
+- **Form-Data 支持**：支持多文件上传的表单数据请求体
 
 ### 🔌 WebSocket 支持
 - **连接管理**：建立和管理 WebSocket 连接
