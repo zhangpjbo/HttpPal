@@ -130,9 +130,12 @@ class PathParametersPanel(private val project: Project) : JPanel(BorderLayout())
      * Set parameters from list of EndpointParameter objects (to include descriptions)
      */
     fun setParametersList(params: List<EndpointParameter>) {
+        // Clear existing parameters first to ensure complete replacement
+        tableModel.clear()
+        
         params.forEach { param ->
             val existingValue = tableModel.getParameterValue(param.name)
-            tableModel.udpateOrAddParameter(
+            tableModel.addRow(
                 PathParameter(
                     name = param.name,
                     value = if (existingValue.isNotBlank()) existingValue else (param.defaultValue ?: ""),
@@ -142,6 +145,8 @@ class PathParametersPanel(private val project: Project) : JPanel(BorderLayout())
                 )
             )
         }
+        
+        // Add empty row if needed
         if (params.isNotEmpty()) {
             updateVisibility()
         }

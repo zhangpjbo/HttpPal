@@ -574,14 +574,14 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
             }
             
             // Validate body for specific methods
-            val method = methodComboBox.selectedItem as HttpMethod
+            /*val method = methodComboBox.selectedItem as HttpMethod
             val body = bodyEditor.document.text
             if (method in listOf(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH) && body.isNotBlank()) {
                 val bodyValidation = validateRequestBody(body)
                 if (!bodyValidation.isValid) {
                     errors.addAll(bodyValidation.errors)
                 }
-            }
+            }*/
             
             validationErrors = errors
             updateValidationDisplay()
@@ -1161,25 +1161,18 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         methodComboBox.selectedItem = endpoint.method
         enhancedUrlField.setText(endpoint.path)
         
-        // Update path parameters from URL
-        pathParametersPanel.updateFromUrl(endpoint.path)
-        
-        // Update query parameters from URL
-        queryParametersPanel.syncFromUrl(endpoint.path)
-        
         // Clear existing headers and add any endpoint-specific headers
         clearAllHeaders()
         
-        // Add parameters to panels/headers
         // Separate parameters by type
         val pathParams = endpoint.parameters.filter { it.type == ParameterType.PATH }
         val queryParams = endpoint.parameters.filter { it.type == ParameterType.QUERY }
         val headerParams = endpoint.parameters.filter { it.type == ParameterType.HEADER }
         
-        // Update Path Parameters Panel (merges with existing extracted from URL)
+        // Update Path Parameters Panel (clears existing and sets new parameters with full details)
         pathParametersPanel.setParametersList(pathParams)
         
-        // Update Query Parameters Panel (merges with existing)
+        // Update Query Parameters Panel (clears existing and sets new parameters with full details)
         val uiQueryParams = queryParams.map { 
              com.httppal.ui.QueryParametersPanel.QueryParameter(
                  enabled = true,
@@ -1188,7 +1181,11 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
                  description = it.description ?: ""
              )
         }
-        queryParametersPanel.mergeParametersList(uiQueryParams)
+        queryParametersPanel.setParametersList(uiQueryParams)
+        
+        // We don't need to update path/query parameters from URL here
+        // since setParametersList already sets all the parameter details from the endpoint
+        // The URL field is already set, and path/query parameters will be applied when needed
 
         // Update Headers
         headerParams.forEach { param ->

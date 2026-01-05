@@ -48,12 +48,19 @@ class MockDataGeneratorServiceImpl(private val project: Project) : MockDataGener
             
             // 生成参数数据
             endpoint.parameters.forEach { param ->
-                val value = generateValueForParameter(param)
-                
                 when (param.type) {
-                    ParameterType.PATH -> pathParams[param.name] = value
-                    ParameterType.QUERY -> queryParams[param.name] = value
-                    ParameterType.HEADER -> headers[param.name] = value
+                    ParameterType.PATH -> {
+                        val value = generateValueForParameter(param)
+                        pathParams[param.name] = value
+                    }
+                    ParameterType.QUERY -> {
+                        val value = generateValueForParameter(param)
+                        queryParams[param.name] = value
+                    }
+                    ParameterType.HEADER -> {
+                        val value = generateValueForParameter(param)
+                        headers[param.name] = value
+                    }
                     ParameterType.BODY -> {
                         // 如果有 schemaInfo，使用它生成 body
                         body = if (schemaInfo != null) {
@@ -77,13 +84,23 @@ class MockDataGeneratorServiceImpl(private val project: Project) : MockDataGener
     
     private fun generateValueForParameter(param: EndpointParameter): String {
         // 优先使用示例值
-        if (param.example != null) {
-            return param.example
-        }
-        
+        param.example
+            ?.takeIf { it.isNotBlank() } // 仅当非空且非空白时通过
+            ?.trim()
+            ?.let { return it }
+
         // 使用默认值
-        if (param.defaultValue != null) {
-            return param.defaultValue
+        param.defaultValue
+            ?.takeIf { it.isNotBlank() } // 仅当非空且非空白时通过
+            ?.trim()
+            ?.let { return it }
+        
+        // 检查是否是集合类型（如 List<User>）
+        if (!param.qualifiedType.isNullOrBlank()) {
+            val collectionValue = generateValueForCollectionType(param.qualifiedType)
+            if (collectionValue != null) {
+                return collectionValue
+            }
         }
         
         // 根据数据类型生成
@@ -91,13 +108,76 @@ class MockDataGeneratorServiceImpl(private val project: Project) : MockDataGener
             "integer", "int", "long" -> random.nextInt(1, 100).toString()
             "number", "float", "double" -> random.nextDouble(1.0, 100.0).toString()
             "boolean" -> random.nextBoolean().toString()
+            "array", "list", "set" -> "[]"  // 临时处理数组类型
             else -> faker.lorem().word()
         }
     }
     
+    private fun generateValueForCollectionType(qualifiedType: String): String? {
+        // 检查是否是集合类型，例如 java.util.List<com.example.User>
+        if (qualifiedType.startsWith("java.util.List") || 
+            qualifiedType.startsWith("java.util.ArrayList") ||
+            qualifiedType.startsWith("java.util.Set") ||
+            qualifiedType.startsWith("java.util.HashSet") ||
+            qualifiedType.startsWith("java.util.Collection")) {
+            
+            // 尝试提取泛型类型
+            if (qualifiedType.contains("<") && qualifiedType.contains(">")) {
+                val genericType = qualifiedType.substringAfter("<").substringBefore(">")
+                
+                // 查找泛型类型对应的类
+                val psiClass = JavaPsiFacade.getInstance(project).findClass(
+                    genericType,
+                    GlobalSearchScope.allScope(project)
+                )
+                
+                if (psiClass != null) {
+                    // 生成一个包含模拟对象的列表
+                    val mockObjects = mutableListOf<Map<String, Any?>>()
+                    // 根据项目规范，对象集合默认只生成两条数据
+                    for (i in 0 until 2) {
+                        val mockObject = generateFromPsiClass(psiClass, 0) as? Map<String, Any?>
+                        if (mockObject != null) {
+                            mockObjects.add(mockObject)
+                        }
+                    }
+                    
+                    return try {
+                        objectMapper.writeValueAsString(mockObjects)
+                    } catch (e: Exception) {
+                        "[]"
+                    }
+                }
+            }
+            
+            return "[]"  // 默认返回空数组
+        }
+        
+        return null  // 不是集合类型
+    }
+    
     private fun generateDefaultBody(param: EndpointParameter): String {
+        // 优先使用默认值
+        param.example
+            ?.takeIf { it.isNotBlank() } // 仅当非空且非空白时通过
+            ?.trim()
+            ?.let { return it }
+
+        // 使用默认值
+        param.defaultValue
+            ?.takeIf { it.isNotBlank() } // 仅当非空且非空白时通过
+            ?.trim()
+            ?.let { return it }
+        
         // If we have a fully qualified type, try to resolve it and generate deep mock data
         if (!param.qualifiedType.isNullOrBlank() && param.qualifiedType != "java.lang.Object") {
+             // 检查是否是集合类型（如 List<User>）
+             val collectionValue = generateValueForCollectionType(param.qualifiedType)
+             if (collectionValue != null) {
+                 return collectionValue
+             }
+             
+             // 非集合类型的普通类处理
              val psiClass = JavaPsiFacade.getInstance(project).findClass(
                  param.qualifiedType,
                  GlobalSearchScope.allScope(project)
@@ -118,7 +198,7 @@ class MockDataGeneratorServiceImpl(private val project: Project) : MockDataGener
         return when (param.dataType?.lowercase()) {
             "object" -> "{}"
             "array" -> "[]"
-            else -> "\"\""
+            else -> "{}"
         }
     }
     
