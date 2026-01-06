@@ -5,17 +5,15 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import java.awt.Component
-import javax.swing.JOptionPane
-import javax.swing.SwingUtilities
 
 /**
  * Centralized error handling and user notification utility
  */
 object ErrorHandler {
-    
+
     val logger = thisLogger()
     private const val NOTIFICATION_GROUP_ID = "HttpPal.Plugin"
-    
+
     /**
      * Error severity levels
      */
@@ -25,7 +23,7 @@ object ErrorHandler {
         ERROR,
         CRITICAL
     }
-    
+
     /**
      * Error recovery action
      */
@@ -33,7 +31,7 @@ object ErrorHandler {
         val title: String,
         val action: () -> Unit
     )
-    
+
     /**
      * Comprehensive error information
      */
@@ -45,7 +43,7 @@ object ErrorHandler {
         val recoveryActions: List<RecoveryAction> = emptyList(),
         val userFriendlyMessage: String? = null
     )
-    
+
     /**
      * Handle an error with comprehensive logging and user notification
      */
@@ -57,16 +55,16 @@ object ErrorHandler {
     ) {
         // Log the error
         logError(error)
-        
+
         // Show user notification
         if (showDialog) {
             showErrorToUser(error, project, component)
         }
-        
+
         // Show IDE notification
         showIdeNotification(error, project)
     }
-    
+
     /**
      * Handle a simple error with message
      */
@@ -85,7 +83,7 @@ object ErrorHandler {
         )
         handleError(errorInfo, project, component)
     }
-    
+
     /**
      * Handle validation errors
      */
@@ -95,24 +93,24 @@ object ErrorHandler {
         title: String = "Validation Error"
     ) {
         if (errors.isEmpty()) return
-        
+
         val message = if (errors.size == 1) {
             errors.first()
         } else {
             "Multiple validation errors:\n${errors.joinToString("\n• ", "• ")}"
         }
-        
+
         val errorInfo = ErrorInfo(
             message = "Validation failed",
             details = message,
             severity = ErrorSeverity.WARNING,
             userFriendlyMessage = message
         )
-        
+
         logError(errorInfo)
         showValidationErrorDialog(message, title, component)
     }
-    
+
     /**
      * Show success notification
      */
@@ -122,14 +120,14 @@ object ErrorHandler {
         details: String? = null
     ) {
         logger.info("Success: $message")
-        
+
         val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup(NOTIFICATION_GROUP_ID)
             .createNotification(message, details ?: "", NotificationType.INFORMATION)
-        
+
         notification.notify(project)
     }
-    
+
     /**
      * Show warning notification
      */
@@ -139,14 +137,14 @@ object ErrorHandler {
         details: String? = null
     ) {
         logger.warn("Warning: $message")
-        
+
         val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup(NOTIFICATION_GROUP_ID)
             .createNotification(message, details ?: "", NotificationType.WARNING)
-        
+
         notification.notify(project)
     }
-    
+
     /**
      * Show info notification
      */
@@ -156,14 +154,14 @@ object ErrorHandler {
         details: String? = null
     ) {
         logger.info("Info: $message")
-        
+
         val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup(NOTIFICATION_GROUP_ID)
             .createNotification(message, details ?: "", NotificationType.INFORMATION)
-        
+
         notification.notify(project)
     }
-    
+
     /**
      * Execute with error handling
      */
@@ -188,7 +186,7 @@ object ErrorHandler {
             null
         }
     }
-    
+
     /**
      * Execute with error handling and recovery
      */
@@ -226,13 +224,13 @@ object ErrorHandler {
             }
         }
     }
-    
+
     private fun logError(error: ErrorInfo) {
         val logMessage = buildString {
             append("Error: ${error.message}")
             error.details?.let { append(" - Details: $it") }
         }
-        
+
         when (error.severity) {
             ErrorSeverity.INFO -> logger.info(logMessage, error.cause)
             ErrorSeverity.WARNING -> logger.warn(logMessage, error.cause)
@@ -240,75 +238,69 @@ object ErrorHandler {
             ErrorSeverity.CRITICAL -> logger.error("CRITICAL: $logMessage", error.cause)
         }
     }
-    
+
     private fun showErrorToUser(
         error: ErrorInfo,
         project: Project?,
         component: Component?
     ) {
         val userMessage = error.userFriendlyMessage ?: error.message
-        val title = when (error.severity) {
-            ErrorSeverity.INFO -> "Information"
-            ErrorSeverity.WARNING -> "Warning"
-            ErrorSeverity.ERROR -> "Error"
-            ErrorSeverity.CRITICAL -> "Critical Error"
-        }
-        
-        val messageType = when (error.severity) {
-            ErrorSeverity.INFO -> JOptionPane.INFORMATION_MESSAGE
-            ErrorSeverity.WARNING -> JOptionPane.WARNING_MESSAGE
-            ErrorSeverity.ERROR -> JOptionPane.ERROR_MESSAGE
-            ErrorSeverity.CRITICAL -> JOptionPane.ERROR_MESSAGE
-        }
-        
-        SwingUtilities.invokeLater {
-            if (error.recoveryActions.isNotEmpty()) {
-                showErrorWithRecoveryOptions(userMessage, title, error.recoveryActions, component)
-            } else {
-                JOptionPane.showMessageDialog(
-                    component,
-                    userMessage,
-                    title,
-                    messageType
-                )
+
+        when (error.severity) {
+            ErrorSeverity.INFO -> DialogManager.showInfo(
+                message = userMessage,
+                titleKey = "dialog.title.info",
+                parent = component
+            )
+            ErrorSeverity.WARNING -> DialogManager.showWarning(
+                message = userMessage,
+                titleKey = "dialog.title.warning",
+                parent = component
+            )
+            ErrorSeverity.ERROR, ErrorSeverity.CRITICAL -> {
+                if (error.recoveryActions.isNotEmpty()) {
+                    showErrorWithRecoveryOptions(userMessage, error.recoveryActions, component)
+                } else {
+                    DialogManager.showError(
+                        message = userMessage,
+                        titleKey = "dialog.title.error",
+                        parent = component
+                    )
+                }
             }
         }
     }
-    
+
     private fun showErrorWithRecoveryOptions(
         message: String,
-        title: String,
         recoveryActions: List<RecoveryAction>,
         component: Component?
     ) {
-        val options = recoveryActions.map { it.title }.toTypedArray() + "Cancel"
-        
-        val choice = JOptionPane.showOptionDialog(
-            component,
-            message,
-            title,
-            JOptionPane.YES_NO_CANCEL_OPTION,
-            JOptionPane.ERROR_MESSAGE,
-            null,
-            options,
-            options.last()
+        val options = recoveryActions.map { it.title }.toTypedArray()
+
+        val choice = DialogManager.showOptions(
+            message = message,
+            title = null,
+            options = options + "Cancel",
+            parent = component,
+            titleKey = "dialog.title.error",
+            optionKeys = null
         )
-        
+
         if (choice >= 0 && choice < recoveryActions.size) {
             try {
                 recoveryActions[choice].action()
             } catch (e: Exception) {
                 logger.error("Recovery action failed", e)
-                JOptionPane.showMessageDialog(
-                    component,
-                    "Recovery action failed: ${e.message}",
-                    "Recovery Failed",
-                    JOptionPane.ERROR_MESSAGE
+                DialogManager.showError(
+                    message = "Recovery action failed: ${e.message}",
+                    title = "Recovery Failed",
+                    parent = component
                 )
             }
         }
     }
-    
+
     private fun showIdeNotification(error: ErrorInfo, project: Project?) {
         val notificationType = when (error.severity) {
             ErrorSeverity.INFO -> NotificationType.INFORMATION
@@ -316,7 +308,7 @@ object ErrorHandler {
             ErrorSeverity.ERROR -> NotificationType.ERROR
             ErrorSeverity.CRITICAL -> NotificationType.ERROR
         }
-        
+
         val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup(NOTIFICATION_GROUP_ID)
             .createNotification(
@@ -324,25 +316,22 @@ object ErrorHandler {
                 error.details ?: "",
                 notificationType
             )
-        
+
         notification.notify(project)
     }
-    
+
     private fun showValidationErrorDialog(
         message: String,
         title: String,
         component: Component?
     ) {
-        SwingUtilities.invokeLater {
-            JOptionPane.showMessageDialog(
-                component,
-                message,
-                title,
-                JOptionPane.WARNING_MESSAGE
-            )
-        }
+        DialogManager.showWarning(
+            message = message,
+            title = title,
+            parent = component
+        )
     }
-    
+
     private fun makeUserFriendly(message: String, cause: Throwable?): String {
         return when {
             cause is java.net.ConnectException -> "Unable to connect to server. Please check your network connection and server availability."
