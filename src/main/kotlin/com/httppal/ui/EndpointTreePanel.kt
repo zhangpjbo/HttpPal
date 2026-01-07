@@ -1,6 +1,7 @@
 package com.httppal.ui
 
 import com.httppal.model.DiscoveredEndpoint
+import com.httppal.model.Environment
 import com.httppal.model.HttpMethod
 import com.httppal.model.RequestConfig
 import com.httppal.service.AutoLoadManager
@@ -10,6 +11,7 @@ import com.httppal.service.HttpPalService
 import com.httppal.util.ErrorHandler
 import com.httppal.util.HttpPalBundle
 import com.httppal.util.LoggingUtils
+import com.httppal.util.MapUtils
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -27,6 +29,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.launch
 import java.awt.*
+import java.awt.event.ActionEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
@@ -47,7 +50,7 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     
     private val endpointDiscoveryService = project.service<EndpointDiscoveryService>()
     private val autoLoadManager = project.service<AutoLoadManager>()
-    private val tree = Tree()
+    internal val tree = Tree()  // 改为 internal 以便增强面板访问
     private val rootNode = DefaultMutableTreeNode("API Endpoints")
     private val treeModel = DefaultTreeModel(rootNode)
     
@@ -58,6 +61,18 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     // State
     private var currentEndpoints: List<DiscoveredEndpoint> = emptyList()
     private var isLoading = false
+    
+    // New UI components for view mode and filtering
+    private lateinit var viewModeComboBox: JComboBox<ViewMode>
+    private lateinit var filterTextField: JTextField
+    private lateinit var clearFilterButton: JButton
+    
+    // Controller for managing view mode and filtering
+    private lateinit var controller: EndpointTreeController
+    private lateinit var viewModel: EndpointViewModel
+    
+    // Custom renderer for highlighting
+    private val treeRenderer = EndpointTreeCellRenderer()
     
     // Performance optimization: Cache for lazy loading
     private val classEndpointsCache = mutableMapOf<String, List<DiscoveredEndpoint>>()
@@ -74,8 +89,13 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     private lateinit var statusLabel: JBLabel
     
     init {
+        // Initialize view model and controller
+        viewModel = EndpointViewModel()
+        controller = EndpointTreeController(project, viewModel, tree)
+        
         setupUI()
         setupEventHandlers()
+        setupControllerCallbacks()
         setupEndpointChangeListener()
         setupAutoLoadListeners()
         // Trigger auto-load when panel is created (ToolWindow opened)
@@ -85,12 +105,15 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun setupUI() {
         border = JBUI.Borders.empty(5)
         
-        // Title panel
+        // Create top panel with title, view mode selector, filter, and refresh button
+        val topPanel = JPanel()
+        topPanel.layout = BoxLayout(topPanel, BoxLayout.Y_AXIS)
+        topPanel.border = JBUI.Borders.empty(0, 0, 5, 0)
+        
+        // Title and refresh button row
         val titlePanel = JPanel(BorderLayout())
-        titlePanel.border = JBUI.Borders.empty(0, 0, 5, 0)
         
         val titleLabel = JBLabel(HttpPalBundle.message("endpoints.title"))
-        //titleLabel.font = UIUtil.getLabelFont().deriveFont(Font.BOLD, UIUtil.getLabelFont().size * 1.3f)
         titlePanel.add(titleLabel, BorderLayout.WEST)
         
         // Refresh button
@@ -99,7 +122,69 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         refreshButton.addActionListener { manualRefresh() }
         titlePanel.add(refreshButton, BorderLayout.EAST)
         
-        add(titlePanel, BorderLayout.NORTH)
+        topPanel.add(titlePanel)
+        topPanel.add(Box.createVerticalStrut(5))
+        
+        // View mode selector and filter row
+        val controlsPanel = JPanel(BorderLayout())
+        controlsPanel.border = JBUI.Borders.empty(0, 0, 0, 0)
+        
+        // View mode selector (left side)
+        val viewModePanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+        val viewModeLabel = JBLabel("View: ")
+        viewModePanel.add(viewModeLabel)
+        
+        viewModeComboBox = JComboBox(ViewMode.values())
+        viewModeComboBox.selectedItem = ViewMode.AUTO_DISCOVERY
+        viewModeComboBox.toolTipText = "Select view mode for organizing endpoints"
+        viewModeComboBox.addActionListener {
+            val selectedMode = viewModeComboBox.selectedItem as ViewMode
+            controller.switchViewMode(selectedMode)
+        }
+        viewModePanel.add(viewModeComboBox)
+        
+        controlsPanel.add(viewModePanel, BorderLayout.WEST)
+        
+        // Filter box (right side)
+        val filterPanel = JPanel(BorderLayout())
+        filterPanel.border = JBUI.Borders.empty(0, 5, 0, 0)
+        
+        filterTextField = JTextField()
+        filterTextField.toolTipText = "Filter endpoints (supports multiple keywords)"
+        filterTextField.putClientProperty("JTextField.placeholderText", "Filter endpoints...")
+        
+        // Add document listener for real-time filtering
+        filterTextField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) {
+                applyFilterWithDebounce()
+            }
+            
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) {
+                applyFilterWithDebounce()
+            }
+            
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) {
+                applyFilterWithDebounce()
+            }
+        })
+        
+        filterPanel.add(filterTextField, BorderLayout.CENTER)
+        
+        // Clear filter button
+        clearFilterButton = JButton("✕")
+        clearFilterButton.toolTipText = "Clear filter"
+        clearFilterButton.preferredSize = Dimension(25, 25)
+        clearFilterButton.addActionListener {
+            filterTextField.text = ""
+            controller.clearFilter()
+        }
+        filterPanel.add(clearFilterButton, BorderLayout.EAST)
+        
+        controlsPanel.add(filterPanel, BorderLayout.CENTER)
+        
+        topPanel.add(controlsPanel)
+        
+        add(topPanel, BorderLayout.NORTH)
         
         // Create main content panel with CardLayout for switching between tree and loading
         val contentPanel = JPanel(CardLayout())
@@ -109,7 +194,7 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         tree.model = treeModel
         tree.isRootVisible = false // Hide root node for cleaner look
         tree.showsRootHandles = true
-        tree.cellRenderer = EndpointTreeCellRenderer()
+        tree.cellRenderer = treeRenderer
         //tree.font = UIUtil.getLabelFont()
         // Improve tree appearance
         tree.border = JBUI.Borders.empty(5)
@@ -138,6 +223,87 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         // Status panel
         val statusPanel = createStatusPanel()
         add(statusPanel, BorderLayout.SOUTH)
+        
+        // Setup keyboard shortcuts
+        setupKeyboardShortcuts()
+    }
+    
+    /**
+     * Setup keyboard shortcuts for accessibility
+     * Implements requirement 4.5: Keyboard shortcuts
+     */
+    private fun setupKeyboardShortcuts() {
+        // Ctrl+Shift+V: Cycle through view modes
+        val cycleViewModeAction = object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent?) {
+                cycleViewMode()
+            }
+        }
+        
+        val cycleViewModeKeyStroke = KeyStroke.getKeyStroke(
+            java.awt.event.KeyEvent.VK_V,
+            java.awt.event.InputEvent.CTRL_DOWN_MASK or java.awt.event.InputEvent.SHIFT_DOWN_MASK
+        )
+        
+        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(cycleViewModeKeyStroke, "cycleViewMode")
+        getActionMap().put("cycleViewMode", cycleViewModeAction)
+        
+        // Ctrl+F: Focus filter text field
+        val focusFilterAction = object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent?) {
+                filterTextField.requestFocusInWindow()
+                filterTextField.selectAll()
+            }
+        }
+        
+        val focusFilterKeyStroke = KeyStroke.getKeyStroke(
+            java.awt.event.KeyEvent.VK_F,
+            java.awt.event.InputEvent.CTRL_DOWN_MASK
+        )
+        
+        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(focusFilterKeyStroke, "focusFilter")
+        getActionMap().put("focusFilter", focusFilterAction)
+        
+        // Escape: Clear filter when filter field is focused
+        val clearFilterAction = object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent?) {
+                if (filterTextField.isFocusOwner) {
+                    filterTextField.text = ""
+                    controller.clearFilter()
+                }
+            }
+        }
+        
+        val escapeKeyStroke = KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0)
+        filterTextField.getInputMap(JComponent.WHEN_FOCUSED).put(escapeKeyStroke, "clearFilter")
+        filterTextField.getActionMap().put("clearFilter", clearFilterAction)
+        
+        // Set accessible names and descriptions for screen readers
+        viewModeComboBox.accessibleContext.accessibleName = "View Mode Selector"
+        viewModeComboBox.accessibleContext.accessibleDescription = "Select how endpoints are organized in the tree"
+        
+        filterTextField.accessibleContext.accessibleName = "Filter Endpoints"
+        filterTextField.accessibleContext.accessibleDescription = "Type to filter endpoints by keywords"
+        
+        clearFilterButton.accessibleContext.accessibleName = "Clear Filter"
+        clearFilterButton.accessibleContext.accessibleDescription = "Clear the current filter"
+        
+        tree.accessibleContext.accessibleName = "Endpoints Tree"
+        tree.accessibleContext.accessibleDescription = "Tree view of discovered API endpoints"
+    }
+    
+    /**
+     * Cycle through view modes
+     */
+    private fun cycleViewMode() {
+        val currentMode = viewModeComboBox.selectedItem as ViewMode
+        val nextMode = when (currentMode) {
+            ViewMode.AUTO_DISCOVERY -> ViewMode.SWAGGER
+            ViewMode.SWAGGER -> ViewMode.CLASS_METHOD
+            ViewMode.CLASS_METHOD -> ViewMode.AUTO_DISCOVERY
+        }
+        viewModeComboBox.selectedItem = nextMode
+        controller.switchViewMode(nextMode)
     }
     
     /**
@@ -248,6 +414,9 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 // Implements requirement 3.1: Provide visual feedback within 100ms
                 updateStatusPanel("Selected: ${endpoint.method} ${endpoint.path}")
                 
+                // Record selected endpoint for position preservation
+                controller.recordSelectedEndpoint(endpoint)
+                
                 // Flash the status label to draw attention
                 com.httppal.util.VisualFeedbackHelper.flashComponent(
                     statusLabel, 
@@ -258,6 +427,297 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 updateStatusPanel("Ready")
             }
         }
+    }
+    
+    /**
+     * Setup controller callbacks for view mode and filter changes
+     */
+    private fun setupControllerCallbacks() {
+        // Handle view mode changes
+        controller.setOnViewModeChanged { newMode ->
+            // Update the tree display based on the new view mode
+            updateTreeForViewMode(newMode)
+        }
+        
+        // Handle filter changes
+        controller.setOnFilterChanged { filterText ->
+            // Apply the filter to the current endpoints
+            applyFilter(filterText)
+        }
+    }
+    
+    /**
+     * Debounce filter application to avoid excessive updates
+     */
+    private var filterDebounceJob: kotlinx.coroutines.Job? = null
+    
+    private fun applyFilterWithDebounce() {
+        filterDebounceJob?.cancel()
+        filterDebounceJob = updateScope.launch {
+            kotlinx.coroutines.delay(200) // 200ms debounce
+            
+            ApplicationManager.getApplication().invokeLater {
+                val filterText = filterTextField.text
+                controller.applyFilter(filterText)
+            }
+        }
+    }
+    
+    /**
+     * Apply filter to endpoints
+     * Handles empty filter results
+     */
+    private fun applyFilter(filterText: String) {
+        // Update renderer with current filter text for highlighting
+        treeRenderer.setFilterText(filterText)
+        
+        if (filterText.isBlank()) {
+            // Show all endpoints
+            updateEndpointsDisplay(currentEndpoints)
+            return
+        }
+        
+        // Get filtered endpoints from view model
+        val filteredEndpoints = viewModel.applyFilter(filterText, controller.getCurrentViewMode())
+        
+        // Handle empty filter results
+        if (filteredEndpoints.isEmpty()) {
+            // Clear tree and show "no matches" message
+            rootNode.removeAllChildren()
+            val noMatchesNode = DefaultMutableTreeNode("No endpoints match '$filterText'")
+            rootNode.add(noMatchesNode)
+            treeModel.reload()
+            tree.expandPath(TreePath(rootNode.path))
+            updateStatusPanel("No matches found for '$filterText'")
+        } else {
+            // Update display with filtered endpoints
+            updateEndpointsDisplay(filteredEndpoints)
+            updateStatusPanel("Filtered: ${filteredEndpoints.size} of ${currentEndpoints.size} endpoints")
+        }
+        
+        // Repaint tree to apply highlighting
+        tree.repaint()
+    }
+    
+    /**
+     * Update tree display for the current view mode
+     * Handles errors and falls back to Auto Discovery view if needed
+     */
+    private fun updateTreeForViewMode(viewMode: ViewMode) {
+        try {
+            // Update view model with current endpoints
+            viewModel.updateEndpoints(currentEndpoints)
+            
+            // Check if we have enough metadata for the requested view mode
+            if (!canSupportViewMode(viewMode)) {
+                // Fall back to Auto Discovery view
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup("HttpPal.Notifications")
+                    .createNotification(
+                        "View Mode Not Supported",
+                        "Missing required metadata for ${viewMode.name} view. Falling back to Auto Discovery view.",
+                        NotificationType.WARNING
+                    )
+                    .notify(project)
+                
+                // Switch combo box back to Auto Discovery
+                viewModeComboBox.selectedItem = ViewMode.AUTO_DISCOVERY
+                controller.switchViewMode(ViewMode.AUTO_DISCOVERY)
+                return
+            }
+            
+            // Get the tree structure for the current view mode
+            val treeStructure = viewModel.getEndpointsForView(viewMode)
+            
+            // Update the tree display
+            updateTreeWithStructure(treeStructure)
+        } catch (e: Exception) {
+            // Handle data transformation errors
+            LoggingUtils.logWithContext(
+                LoggingUtils.LogLevel.ERROR,
+                "Error updating tree for view mode: ${viewMode.name}",
+                MapUtils.safeMapOf("error" to e.message)
+            )
+            
+            // Show error notification
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("HttpPal.Notifications")
+                .createNotification(
+                    "View Update Error",
+                    "Error organizing endpoints: ${e.message}. Displaying flat list.",
+                    NotificationType.ERROR
+                )
+                .notify(project)
+            
+            // Fall back to flat list display
+            displayEndpointsAsFlatList(currentEndpoints)
+        }
+    }
+    
+    /**
+     * Check if the current endpoints support the requested view mode
+     */
+    private fun canSupportViewMode(viewMode: ViewMode): Boolean {
+        return when (viewMode) {
+            ViewMode.AUTO_DISCOVERY -> true // Always supported
+            ViewMode.SWAGGER -> {
+                // Check if we have any endpoints with Swagger metadata
+                currentEndpoints.any { it.tags.isNotEmpty() || it.operationId != null || it.summary != null }
+            }
+            ViewMode.CLASS_METHOD -> {
+                // Check if we have class and method names
+                currentEndpoints.all { it.className.isNotBlank() && it.methodName.isNotBlank() }
+            }
+        }
+    }
+    
+    /**
+     * Display endpoints as a flat list when tree structure fails
+     */
+    private fun displayEndpointsAsFlatList(endpoints: List<DiscoveredEndpoint>) {
+        rootNode.removeAllChildren()
+        
+        endpoints.sortedWith(
+            compareBy<DiscoveredEndpoint> { it.method.ordinal }
+                .thenBy { it.path }
+        ).forEach { endpoint ->
+            rootNode.add(DefaultMutableTreeNode(endpoint))
+        }
+        
+        treeModel.reload()
+        tree.expandPath(TreePath(rootNode.path))
+    }
+    
+    /**
+     * Update tree with a specific structure
+     * Supports virtual scrolling for large datasets
+     */
+    private fun updateTreeWithStructure(structure: TreeNodeStructure) {
+        // Clear existing nodes
+        rootNode.removeAllChildren()
+        
+        // Determine if virtual scrolling should be enabled
+        val totalEndpoints = currentEndpoints.size
+        virtualScrollingEnabled = totalEndpoints > 100
+        
+        when (structure) {
+            is TreeNodeStructure.AutoDiscoveryNode -> {
+                // Update cache for virtual scrolling
+                if (virtualScrollingEnabled) {
+                    classEndpointsCache.clear()
+                    classEndpointsCache.putAll(structure.groupedByClass)
+                }
+                
+                // Display endpoints grouped by class
+                structure.groupedByClass.forEach { (className, endpoints) ->
+                    if (virtualScrollingEnabled) {
+                        // Create virtualized node
+                        val classNode = DefaultMutableTreeNode(ClassNodeData(className, endpoints.size, isVirtualized = true))
+                        val placeholderNode = DefaultMutableTreeNode("Click to load ${endpoints.size} endpoints...")
+                        classNode.add(placeholderNode)
+                        rootNode.add(classNode)
+                    } else {
+                        // Create normal node
+                        val classNode = DefaultMutableTreeNode(ClassNodeData(className, endpoints.size))
+                        endpoints.sortedWith(
+                            compareBy<DiscoveredEndpoint> { it.method.ordinal }
+                                .thenBy { it.path }
+                        ).forEach { endpoint ->
+                            classNode.add(DefaultMutableTreeNode(endpoint))
+                        }
+                        rootNode.add(classNode)
+                    }
+                }
+            }
+            is TreeNodeStructure.SwaggerNode -> {
+                // Display endpoints grouped by tags and classes
+                structure.groupedByTags.forEach { (tag, classesByTag) ->
+                    val tagNode = DefaultMutableTreeNode("Tag: $tag")
+                    classesByTag.forEach { (className, endpoints) ->
+                        val classNode = DefaultMutableTreeNode(ClassNodeData(className, endpoints.size))
+                        endpoints.sortedWith(
+                            compareBy<DiscoveredEndpoint> { it.method.ordinal }
+                                .thenBy { it.path }
+                        ).forEach { endpoint ->
+                            classNode.add(DefaultMutableTreeNode(endpoint))
+                        }
+                        tagNode.add(classNode)
+                    }
+                    rootNode.add(tagNode)
+                }
+            }
+            is TreeNodeStructure.ClassMethodNode -> {
+                // Display endpoints grouped by class and method
+                structure.groupedByClass.forEach { (className, methodsByClass) ->
+                    val classNode = DefaultMutableTreeNode(ClassNodeData(className, methodsByClass.size))
+                    methodsByClass.forEach { (methodName, endpoint) ->
+                        val methodNode = DefaultMutableTreeNode("$methodName()")
+                        methodNode.add(DefaultMutableTreeNode(endpoint))
+                        classNode.add(methodNode)
+                    }
+                    rootNode.add(classNode)
+                }
+            }
+        }
+        
+        // Refresh tree model
+        treeModel.reload()
+        
+        // Expand root and first level nodes
+        tree.expandPath(TreePath(rootNode.path))
+        val maxNodesToExpand = if (virtualScrollingEnabled) 10 else minOf(10, rootNode.childCount)
+        for (i in 0 until maxNodesToExpand) {
+            val childNode = rootNode.getChildAt(i) as DefaultMutableTreeNode
+            tree.expandPath(TreePath(childNode.path))
+        }
+        
+        // Setup virtual scrolling listener if needed
+        if (virtualScrollingEnabled && structure is TreeNodeStructure.AutoDiscoveryNode) {
+            setupVirtualScrollingListener()
+        }
+    }
+    
+    /**
+     * Setup virtual scrolling listener for lazy loading
+     */
+    private fun setupVirtualScrollingListener() {
+        // Remove existing listeners to avoid duplicates
+        tree.treeExpansionListeners.forEach { listener ->
+            if (listener.javaClass.name.contains("VirtualScrolling")) {
+                tree.removeTreeExpansionListener(listener)
+            }
+        }
+        
+        // Add new listener
+        tree.addTreeExpansionListener(object : javax.swing.event.TreeExpansionListener {
+            override fun treeExpanded(event: javax.swing.event.TreeExpansionEvent) {
+                val node = event.path.lastPathComponent as? DefaultMutableTreeNode
+                if (node != null && node.userObject is ClassNodeData) {
+                    val classData = node.userObject as ClassNodeData
+                    if (classData.isVirtualized && node.childCount == 1) {
+                        // Lazy load endpoints for this class
+                        loadEndpointsForClassLazy(node, classData.className)
+                    }
+                }
+            }
+            
+            override fun treeCollapsed(event: javax.swing.event.TreeExpansionEvent) {
+                // Performance optimization: Unload endpoints to save memory
+                val node = event.path.lastPathComponent as? DefaultMutableTreeNode
+                if (node != null && node.userObject is ClassNodeData) {
+                    val classData = node.userObject as ClassNodeData
+                    if (classData.isVirtualized && node.childCount > 1) {
+                        // Unload endpoints (replace with placeholder)
+                        node.removeAllChildren()
+                        val placeholderNode = DefaultMutableTreeNode(
+                            "Click to load ${classData.endpointCount} endpoints..."
+                        )
+                        node.add(placeholderNode)
+                        treeModel.reload(node)
+                    }
+                }
+            }
+        })
     }
     
     private fun setupEndpointChangeListener() {
@@ -425,6 +885,7 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
      * Auto-update endpoints based on change notification
      * Implements requirement 2.5: Auto-update endpoint list
      * Implements requirement 2.2, 2.3: Preserve selection state
+     * Implements requirement 3.8: Position preservation on auto-refresh
      */
     private fun autoUpdateEndpoints(notification: EndpointChangeNotification) {
         if (!notification.hasChanges()) {
@@ -441,16 +902,21 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
             )
         )
         
-        // Save currently selected endpoint to restore after update
-        val selectedEndpoint = getSelectedEndpoint()
-        
         // Get all current endpoints from discovery service
         val allEndpoints = endpointDiscoveryService.discoverEndpoints()
         updateEndpointsDisplay(allEndpoints)
         
-        // Try to restore selection if the endpoint still exists
-        if (selectedEndpoint != null) {
-            restoreSelection(selectedEndpoint)
+        // Try to restore selection using controller
+        val restored = controller.restoreSelection(allEndpoints)
+        if (!restored) {
+            // Show notification if restoration failed
+            showSelectionRestorationFailedNotification()
+        } else {
+            // Find and select the matching endpoint in the tree
+            val matchingEndpoint = controller.findMatchingEndpoint(allEndpoints)
+            if (matchingEndpoint != null) {
+                selectEndpointInTree(matchingEndpoint)
+            }
         }
         
         // Update status with change summary
@@ -476,6 +942,7 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
      * Manual refresh triggered by user with async UI updates
      * Implements requirement 3.1: Time-consuming operations in background threads
      * Implements requirement 3.4: Add progress indicators
+     * Implements requirement 3.7: Position preservation on manual refresh
      */
     private fun manualRefresh() {
         // Show loading state immediately
@@ -493,6 +960,20 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 // Update UI on EDT thread
                 updateEndpointsDisplay(endpoints)
                 hideLoadingState()
+                
+                // Try to restore selection using controller
+                val restored = controller.restoreSelection(endpoints)
+                if (!restored) {
+                    // Show notification if restoration failed
+                    showSelectionRestorationFailedNotification()
+                } else {
+                    // Find and select the matching endpoint in the tree
+                    val matchingEndpoint = controller.findMatchingEndpoint(endpoints)
+                    if (matchingEndpoint != null) {
+                        selectEndpointInTree(matchingEndpoint)
+                    }
+                }
+                
                 updateStatusPanel("Refresh completed: ${endpoints.size} endpoints found")
             },
             onError = { error ->
@@ -526,41 +1007,29 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     /**
      * Perform the actual endpoints update
      * Separated from updateEndpointsDisplay for debouncing
+     * Handles empty endpoint lists
      */
     private fun performEndpointsUpdate(endpoints: List<DiscoveredEndpoint>) {
         currentEndpoints = endpoints
         
-        // Clear existing nodes
-        rootNode.removeAllChildren()
-        
+        // Handle empty endpoint list
         if (endpoints.isEmpty()) {
+            rootNode.removeAllChildren()
             val noEndpointsNode = DefaultMutableTreeNode("No endpoints found")
             rootNode.add(noEndpointsNode)
+            treeModel.reload()
+            tree.expandPath(TreePath(rootNode.path))
             updateStatusPanel("No endpoints discovered")
-        } else {
-            // Check if we need virtual scrolling
-            // Implements requirement 3.2: Enable virtual scrolling for > 100 endpoints
-            virtualScrollingEnabled = endpoints.size > 100
-            
-            if (virtualScrollingEnabled) {
-                enableVirtualScrolling(endpoints)
-            } else {
-                displayEndpointsNormally(endpoints)
-            }
+            return
         }
         
-        // Refresh tree model
-        treeModel.reload()
+        // Update view model with new endpoints
+        viewModel.updateEndpoints(endpoints)
         
-        // Expand all class nodes (but limit to avoid performance issues)
-        val maxNodesToExpand = if (virtualScrollingEnabled) 10 else rootNode.childCount
-        for (i in 0 until minOf(maxNodesToExpand, rootNode.childCount)) {
-            val classNode = rootNode.getChildAt(i) as DefaultMutableTreeNode
-            tree.expandPath(TreePath(classNode.path))
-        }
+        // Update tree display based on current view mode
+        updateTreeForViewMode(controller.getCurrentViewMode())
         
-        // Expand root
-        tree.expandPath(TreePath(rootNode.path))
+        updateStatusPanel("Found ${endpoints.size} endpoints")
     }
     
     /**
@@ -717,6 +1186,84 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         } else {
             null
         }
+    }
+    
+    /**
+     * Select an endpoint in the tree
+     * Implements requirement 3.2, 3.3, 3.4, 3.5: Position preservation
+     */
+    private fun selectEndpointInTree(endpoint: DiscoveredEndpoint) {
+        // Find the endpoint in the tree
+        findEndpointNode(rootNode, endpoint)?.let { endpointNode ->
+            val path = TreePath(endpointNode.path)
+            tree.selectionPath = path
+            tree.scrollPathToVisible(path)
+        }
+    }
+    
+    /**
+     * Recursively find an endpoint node in the tree
+     */
+    private fun findEndpointNode(node: DefaultMutableTreeNode, endpoint: DiscoveredEndpoint): DefaultMutableTreeNode? {
+        // Check if this node contains the endpoint
+        if (node.userObject is DiscoveredEndpoint) {
+            val nodeEndpoint = node.userObject as DiscoveredEndpoint
+            if (nodeEndpoint.path == endpoint.path && nodeEndpoint.method == endpoint.method) {
+                return node
+            }
+        }
+        
+        // Recursively search children
+        for (i in 0 until node.childCount) {
+            val childNode = node.getChildAt(i) as DefaultMutableTreeNode
+            val found = findEndpointNode(childNode, endpoint)
+            if (found != null) {
+                return found
+            }
+        }
+        
+        return null
+    }
+    
+    /**
+     * Show notification when selection restoration fails
+     * Implements requirement 3.6: Notification on restoration failure
+     */
+    private fun showSelectionRestorationFailedNotification() {
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup("HttpPal.Notifications")
+            .createNotification(
+                "Selection Not Restored",
+                "Previously selected endpoint no longer exists",
+                NotificationType.INFORMATION
+            )
+            .notify(project)
+    }
+    
+    /**
+     * Handle environment change
+     * Implements requirement 3.9: Position preservation on environment change
+     */
+    fun onEnvironmentChanged(environment: Environment?) {
+        // Refresh endpoints when environment changes
+        // This may affect endpoint resolution and display
+        val endpoints = endpointDiscoveryService.discoverEndpoints()
+        updateEndpointsDisplay(endpoints)
+        
+        // Try to restore selection using controller
+        val restored = controller.restoreSelection(endpoints)
+        if (!restored) {
+            // Show notification if restoration failed
+            showSelectionRestorationFailedNotification()
+        } else {
+            // Find and select the matching endpoint in the tree
+            val matchingEndpoint = controller.findMatchingEndpoint(endpoints)
+            if (matchingEndpoint != null) {
+                selectEndpointInTree(matchingEndpoint)
+            }
+        }
+        
+        updateStatusPanel("Environment changed: ${environment?.name ?: "None"}")
     }
     
     /**
@@ -955,9 +1502,15 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Custom tree cell renderer for endpoints
+     * Custom tree cell renderer for endpoints with highlighting support
      */
-    private class EndpointTreeCellRenderer : DefaultTreeCellRenderer() {
+    private inner class EndpointTreeCellRenderer : DefaultTreeCellRenderer() {
+        
+        private var currentFilterText: String = ""
+        
+        fun setFilterText(filterText: String) {
+            currentFilterText = filterText
+        }
         
         override fun getTreeCellRendererComponent(
             tree: JTree,
@@ -984,7 +1537,15 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                         com.httppal.model.EndpointSource.MANUAL -> "[Manual] "
                     }
                     
-                    text = "$sourcePrefix${userObject.method.name} ${userObject.path}"
+                    val displayText = "$sourcePrefix${userObject.method.name} ${userObject.path}"
+                    
+                    // Apply highlighting if filter is active
+                    if (currentFilterText.isNotBlank() && !sel) {
+                        text = highlightText(displayText, currentFilterText)
+                    } else {
+                        text = displayText
+                    }
+                    
                     icon = getMethodIcon(userObject.method, userObject.source)
                     toolTipText = buildEndpointTooltip(userObject)
                     
@@ -1002,8 +1563,16 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                     }
                 }
                 is ClassNodeData -> {
-                    text = userObject.toString()
-                    icon = getMethodIcon(HttpMethod.GET) // Use generic icon for class nodes
+                    val displayText = userObject.toString()
+                    
+                    // Apply highlighting if filter is active
+                    if (currentFilterText.isNotBlank() && !sel) {
+                        text = highlightText(displayText, currentFilterText)
+                    } else {
+                        text = displayText
+                    }
+                    
+                    icon = createFolderIcon(Color(0, 100, 0)) // Green folder icon for class nodes
                     toolTipText = "Controller class: ${userObject.className}"
                     
                     // Customize appearance for class nodes
@@ -1013,9 +1582,38 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                     }
                 }
                 is String -> {
-                    text = userObject
-                    icon = null
-                    toolTipText = null
+                    // Handle special node types (Tag nodes, Method nodes, etc.)
+                    val displayText = userObject
+                    
+                    // Apply highlighting if filter is active
+                    if (currentFilterText.isNotBlank() && !sel) {
+                        text = highlightText(displayText, currentFilterText)
+                    } else {
+                        text = displayText
+                    }
+                    
+                    // Determine icon and tooltip based on text content
+                    when {
+                        displayText.startsWith("Tag: ") -> {
+                            icon = createTagIcon()
+                            toolTipText = "Swagger/OpenAPI tag grouping"
+                            if (!sel) {
+                                font = font.deriveFont(font.style or java.awt.Font.BOLD)
+                                foreground = Color(0, 0, 180) // Blue for tags
+                            }
+                        }
+                        displayText.endsWith("()") -> {
+                            icon = createMethodNodeIcon()
+                            toolTipText = "Method: $displayText"
+                            if (!sel) {
+                                foreground = Color(100, 50, 150) // Purple for methods
+                            }
+                        }
+                        else -> {
+                            icon = null
+                            toolTipText = null
+                        }
+                    }
                 }
                 else -> {
                     text = userObject.toString()
@@ -1134,6 +1732,102 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
             
             tooltip.append("</div></html>")
             return tooltip.toString()
+        }
+        
+        /**
+         * Create folder icon for class nodes
+         */
+        private fun createFolderIcon(color: Color): Icon {
+            return object : Icon {
+                override fun paintIcon(c: Component?, g: Graphics?, x: Int, y: Int) {
+                    g?.let {
+                        it.color = color
+                        // Draw folder shape
+                        it.fillRect(x + 2, y + 6, 12, 8)
+                        it.fillRect(x + 2, y + 4, 6, 2)
+                    }
+                }
+                
+                override fun getIconWidth(): Int = 16
+                override fun getIconHeight(): Int = 16
+            }
+        }
+        
+        /**
+         * Create tag icon for Swagger tag nodes
+         */
+        private fun createTagIcon(): Icon {
+            return object : Icon {
+                override fun paintIcon(c: Component?, g: Graphics?, x: Int, y: Int) {
+                    g?.let {
+                        it.color = Color(0, 0, 180)
+                        // Draw tag shape (like a label)
+                        val xPoints = intArrayOf(x + 2, x + 12, x + 14, x + 12, x + 2)
+                        val yPoints = intArrayOf(y + 4, y + 4, y + 8, y + 12, y + 12)
+                        it.fillPolygon(xPoints, yPoints, 5)
+                        
+                        // Draw hole in tag
+                        it.color = Color.WHITE
+                        it.fillOval(x + 4, y + 7, 2, 2)
+                    }
+                }
+                
+                override fun getIconWidth(): Int = 16
+                override fun getIconHeight(): Int = 16
+            }
+        }
+        
+        /**
+         * Create method node icon for Class/Method view
+         */
+        private fun createMethodNodeIcon(): Icon {
+            return object : Icon {
+                override fun paintIcon(c: Component?, g: Graphics?, x: Int, y: Int) {
+                    g?.let {
+                        it.color = Color(100, 50, 150)
+                        // Draw method symbol (M)
+                        it.fillRect(x + 3, y + 4, 2, 8)
+                        it.fillRect(x + 5, y + 5, 2, 2)
+                        it.fillRect(x + 7, y + 4, 2, 8)
+                        it.fillRect(x + 9, y + 5, 2, 2)
+                        it.fillRect(x + 11, y + 4, 2, 8)
+                    }
+                }
+                
+                override fun getIconWidth(): Int = 16
+                override fun getIconHeight(): Int = 16
+            }
+        }
+        
+        /**
+         * Highlight matching text in the display string
+         * Uses HTML to apply background color to matching keywords
+         */
+        private fun highlightText(text: String, filterText: String): String {
+            if (filterText.isBlank()) {
+                return text
+            }
+            
+            // Parse keywords from filter text
+            val keywords = filterText.trim()
+                .split("\\s+".toRegex())
+                .filter { it.isNotEmpty() }
+            
+            if (keywords.isEmpty()) {
+                return text
+            }
+            
+            // Build HTML with highlighted keywords
+            var highlightedText = text
+            keywords.forEach { keyword ->
+                // Case-insensitive replacement with HTML highlighting
+                val regex = Regex(Regex.escape(keyword), RegexOption.IGNORE_CASE)
+                highlightedText = regex.replace(highlightedText) { matchResult ->
+                    "<span style='background-color: #FFFF00; color: #000000;'>${matchResult.value}</span>"
+                }
+            }
+            
+            return "<html>$highlightedText</html>"
         }
     }
 }

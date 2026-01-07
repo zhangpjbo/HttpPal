@@ -96,6 +96,8 @@ class HttpPalToolWindow(private val project: Project) {
         environmentSelectionPanel.setOnEnvironmentChangeCallback { environment ->
             // Update request configuration panel when environment changes
             requestConfigPanel.onEnvironmentChanged(environment)
+            // Update endpoint tree panel when environment changes (requirement 3.9)
+            endpointTreePanel.onEnvironmentChanged(environment)
             statusLabel.text = if (environment != null) {
                 HttpPalBundle.message("status.environment.switched", environment.name)
             } else {
