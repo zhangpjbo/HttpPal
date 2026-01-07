@@ -25,37 +25,24 @@ java {
 
 dependencies {
     intellijPlatform {
-        // *** Updated target platform version ***
-        // intellijIdeaCommunity("2025.2") // Recommended way
-        create("IC", "2025.1") // Your current style, also works. Updated version string.
+        create("IC", "2025.1")
 
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
 
-        // Add necessary plugin dependencies for compilation here, example:
         bundledPlugin("com.intellij.java")
-        bundledPlugin("org.jetbrains.kotlin") // Uncomment if you directly depend on Kotlin plugin APIs
+        bundledPlugin("org.jetbrains.kotlin")
     }
-    // Kotlin standard library - Usually added automatically by the Kotlin plugin.
-    // It's recommended to match the Kotlin plugin version or omit it.
-    // implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.0") // *** Matched version or omitted ***
-
-    // HTTP client libraries
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
 
-    // JSON processing
     implementation("com.fasterxml.jackson.core:jackson-core:2.19.0")
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.19.0")
+    /*implementation("com.fasterxml.jackson.core:jackson-databind:2.19.0")*/  
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.0")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-    // Coroutines for async operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
 
-    // OpenAPI parsing
-    implementation("io.swagger.parser.v3:swagger-parser:2.1.36")
+    implementation("io.swagger.parser.v3:swagger-parser:2.1.37")
     
     // Mock data generation
     implementation("net.datafaker:datafaker:2.5.1")
@@ -110,10 +97,6 @@ kotlin {
 // *** New location for plugin-specific configurations in 2.x plugin ***
 intellijPlatform {
     pluginConfiguration {
-        // id, name, vendor are usually taken from plugin.xml
-        // id = "com.httppal.myplugin"
-        // name = "My Plugin Name"
-        // vendor = "Your Name"
 
         ideaVersion {
             // *** Updated sinceBuild ***
