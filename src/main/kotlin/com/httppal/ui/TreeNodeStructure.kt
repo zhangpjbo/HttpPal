@@ -18,10 +18,11 @@ sealed class TreeNodeStructure {
     
     /**
      * Swagger/OpenAPI视图节点结构
-     * 按标签分组，然后按类名分组端点
+     * 按标签分组端点（如果没有标签则使用类名）
+     * 两层结构：第一层是 tag/类名，第二层是端点列表
      */
     data class SwaggerNode(
-        val groupedByTags: Map<String, Map<String, List<DiscoveredEndpoint>>>
+        val groupedByTags: Map<String, List<DiscoveredEndpoint>>
     ) : TreeNodeStructure()
     
     /**

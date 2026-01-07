@@ -91,22 +91,21 @@ class EndpointViewModel {
     
     /**
      * 创建Swagger视图结构
+     * 两层结构：第一层是 tag（如果没有 tag 则用类名），第二层是端点列表
      */
     private fun createSwaggerStructure(endpoints: List<DiscoveredEndpoint>): TreeNodeStructure.SwaggerNode {
-        val groupedByTags = mutableMapOf<String, MutableMap<String, MutableList<DiscoveredEndpoint>>>()
+        val groupedByTags = mutableMapOf<String, MutableList<DiscoveredEndpoint>>()
         
         endpoints.forEach { endpoint ->
             if (endpoint.tags.isEmpty()) {
-                // 没有标签的端点放在"未分类"组
-                val tag = "未分类"
-                val classMap = groupedByTags.getOrPut(tag) { mutableMapOf() }
-                val endpointList = classMap.getOrPut(endpoint.className) { mutableListOf() }
+                // 没有标签的端点使用类名作为分组
+                val groupKey = endpoint.className.substringAfterLast('.')
+                val endpointList = groupedByTags.getOrPut(groupKey) { mutableListOf() }
                 endpointList.add(endpoint)
             } else {
                 // 有标签的端点按标签分组
                 endpoint.tags.forEach { tag ->
-                    val classMap = groupedByTags.getOrPut(tag) { mutableMapOf() }
-                    val endpointList = classMap.getOrPut(endpoint.className) { mutableListOf() }
+                    val endpointList = groupedByTags.getOrPut(tag) { mutableListOf() }
                     endpointList.add(endpoint)
                 }
             }

@@ -646,7 +646,8 @@ class EndpointDiscoveryServiceImpl(private val project: Project) : EndpointDisco
                         lineNumber = getLineNumber(method),
                         source = com.httppal.model.EndpointSource.CODE_SCAN,
                         operationId = operationId,
-                        summary = operationSummary ?: operationDescription,
+                        summary = operationSummary,
+                        description = operationDescription,
                         tags = classTags
                     )
                 }
@@ -668,7 +669,8 @@ class EndpointDiscoveryServiceImpl(private val project: Project) : EndpointDisco
                     lineNumber = getLineNumber(method),
                     source = com.httppal.model.EndpointSource.CODE_SCAN,
                     operationId = operationId,
-                    summary = operationSummary ?: operationDescription,
+                    summary = operationSummary,
+                    description = operationDescription,
                     tags = classTags
                 )
             }

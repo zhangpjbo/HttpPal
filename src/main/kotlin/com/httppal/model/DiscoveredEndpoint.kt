@@ -17,6 +17,7 @@ data class DiscoveredEndpoint(
     val openAPIFile: String? = null,           // OpenAPI 文件路径（如果来自 OpenAPI）
     val operationId: String? = null,           // OpenAPI operationId
     val summary: String? = null,               // 端点摘要
+    val description: String? = null,           // 端点详细描述
     val tags: List<String> = emptyList(),      // OpenAPI tags
     val schemaInfo: SchemaInfo? = null         // 关联的 schema 信息
 ) {

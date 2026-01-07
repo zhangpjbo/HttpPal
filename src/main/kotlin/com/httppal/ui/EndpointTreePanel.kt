@@ -630,20 +630,17 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 }
             }
             is TreeNodeStructure.SwaggerNode -> {
-                // Display endpoints grouped by tags and classes
-                structure.groupedByTags.forEach { (tag, classesByTag) ->
-                    val tagNode = DefaultMutableTreeNode("Tag: $tag")
-                    classesByTag.forEach { (className, endpoints) ->
-                        val classNode = DefaultMutableTreeNode(ClassNodeData(className, endpoints.size))
-                        endpoints.sortedWith(
-                            compareBy<DiscoveredEndpoint> { it.method.ordinal }
-                                .thenBy { it.path }
-                        ).forEach { endpoint ->
-                            classNode.add(DefaultMutableTreeNode(endpoint))
-                        }
-                        tagNode.add(classNode)
+                // Display endpoints grouped by tags (two-level structure)
+                // First level: tag or class name, Second level: endpoints
+                structure.groupedByTags.forEach { (groupName, endpoints) ->
+                    val groupNode = DefaultMutableTreeNode(TagNodeData(groupName, endpoints.size))
+                    endpoints.sortedWith(
+                        compareBy<DiscoveredEndpoint> { it.method.ordinal }
+                            .thenBy { it.path }
+                    ).forEach { endpoint ->
+                        groupNode.add(DefaultMutableTreeNode(endpoint))
                     }
-                    rootNode.add(tagNode)
+                    rootNode.add(groupNode)
                 }
             }
             is TreeNodeStructure.ClassMethodNode -> {
@@ -904,20 +901,8 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         
         // Get all current endpoints from discovery service
         val allEndpoints = endpointDiscoveryService.discoverEndpoints()
+        // Selection restoration is handled in performEndpointsUpdate
         updateEndpointsDisplay(allEndpoints)
-        
-        // Try to restore selection using controller
-        val restored = controller.restoreSelection(allEndpoints)
-        if (!restored) {
-            // Show notification if restoration failed
-            showSelectionRestorationFailedNotification()
-        } else {
-            // Find and select the matching endpoint in the tree
-            val matchingEndpoint = controller.findMatchingEndpoint(allEndpoints)
-            if (matchingEndpoint != null) {
-                selectEndpointInTree(matchingEndpoint)
-            }
-        }
         
         // Update status with change summary
         val changesSummary = buildString {
@@ -957,23 +942,9 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 endpointDiscoveryService.discoverEndpoints()
             },
             onComplete = { endpoints ->
-                // Update UI on EDT thread
+                // Update UI on EDT thread (selection restoration is handled in performEndpointsUpdate)
                 updateEndpointsDisplay(endpoints)
                 hideLoadingState()
-                
-                // Try to restore selection using controller
-                val restored = controller.restoreSelection(endpoints)
-                if (!restored) {
-                    // Show notification if restoration failed
-                    showSelectionRestorationFailedNotification()
-                } else {
-                    // Find and select the matching endpoint in the tree
-                    val matchingEndpoint = controller.findMatchingEndpoint(endpoints)
-                    if (matchingEndpoint != null) {
-                        selectEndpointInTree(matchingEndpoint)
-                    }
-                }
-                
                 updateStatusPanel("Refresh completed: ${endpoints.size} endpoints found")
             },
             onError = { error ->
@@ -1008,6 +979,7 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
      * Perform the actual endpoints update
      * Separated from updateEndpointsDisplay for debouncing
      * Handles empty endpoint lists
+     * Preserves selection after update
      */
     private fun performEndpointsUpdate(endpoints: List<DiscoveredEndpoint>) {
         currentEndpoints = endpoints
@@ -1028,6 +1000,16 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         
         // Update tree display based on current view mode
         updateTreeForViewMode(controller.getCurrentViewMode())
+        
+        // Try to restore selection after tree update
+        val restored = controller.restoreSelection(endpoints)
+        if (restored) {
+            // Find and select the matching endpoint in the tree
+            val matchingEndpoint = controller.findMatchingEndpoint(endpoints)
+            if (matchingEndpoint != null) {
+                selectEndpointInTree(matchingEndpoint)
+            }
+        }
         
         updateStatusPanel("Found ${endpoints.size} endpoints")
     }
@@ -1150,20 +1132,8 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         // Refresh endpoints when environment changes
         // This may affect endpoint resolution and display
         val endpoints = endpointDiscoveryService.discoverEndpoints()
+        // Selection restoration is handled in performEndpointsUpdate
         updateEndpointsDisplay(endpoints)
-        
-        // Try to restore selection using controller
-        val restored = controller.restoreSelection(endpoints)
-        if (!restored) {
-            // Show notification if restoration failed
-            showSelectionRestorationFailedNotification()
-        } else {
-            // Find and select the matching endpoint in the tree
-            val matchingEndpoint = controller.findMatchingEndpoint(endpoints)
-            if (matchingEndpoint != null) {
-                selectEndpointInTree(matchingEndpoint)
-            }
-        }
         
         updateStatusPanel("Environment changed: ${environment?.name ?: "None"}")
     }
@@ -1404,6 +1374,18 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
+     * Data class for tag/group nodes in Swagger view
+     */
+    private data class TagNodeData(
+        val tagName: String,
+        val endpointCount: Int
+    ) {
+        override fun toString(): String {
+            return "$tagName ($endpointCount endpoints)"
+        }
+    }
+    
+    /**
      * Custom tree cell renderer for endpoints with highlighting support
      */
     private inner class EndpointTreeCellRenderer : DefaultTreeCellRenderer() {
@@ -1439,7 +1421,22 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                         com.httppal.model.EndpointSource.MANUAL -> "[Manual] "
                     }
                     
-                    val displayText = "$sourcePrefix${userObject.method.name} ${userObject.path}"
+                    // 根据当前视图模式决定显示内容
+                    val displayText = when (controller.getCurrentViewMode()) {
+                        ViewMode.SWAGGER -> {
+                            // Swagger 视图：优先显示 summary，其次 description，最后才是 path
+                            val description = when {
+                                !userObject.summary.isNullOrBlank() -> userObject.summary
+                                !userObject.description.isNullOrBlank() -> userObject.description
+                                else -> userObject.path
+                            }
+                            "$sourcePrefix${userObject.method.name} $description"
+                        }
+                        else -> {
+                            // 其他视图：显示 path
+                            "$sourcePrefix${userObject.method.name} ${userObject.path}"
+                        }
+                    }
                     
                     // Apply highlighting if filter is active
                     if (currentFilterText.isNotBlank() && !sel) {
@@ -1481,6 +1478,25 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                     if (!sel) {
                         font = font.deriveFont(font.style or java.awt.Font.BOLD) // Bold for class nodes
                         foreground = Color(0, 100, 0) // Dark green for class nodes
+                    }
+                }
+                is TagNodeData -> {
+                    val displayText = userObject.toString()
+                    
+                    // Apply highlighting if filter is active
+                    if (currentFilterText.isNotBlank() && !sel) {
+                        text = highlightText(displayText, currentFilterText)
+                    } else {
+                        text = displayText
+                    }
+                    
+                    icon = createTagIcon()
+                    toolTipText = "Tag/Group: ${userObject.tagName}"
+                    
+                    // Customize appearance for tag nodes
+                    if (!sel) {
+                        font = font.deriveFont(font.style or java.awt.Font.BOLD) // Bold for tag nodes
+                        foreground = Color(0, 0, 180) // Blue for tag nodes
                     }
                 }
                 is String -> {

@@ -267,7 +267,8 @@ class OpenAPIDiscoveryServiceImpl(private val project: Project) : OpenAPIDiscove
             source = EndpointSource.OPENAPI,
             openAPIFile = file.path,
             operationId = operation.operationId,
-            summary = operation.summary ?: operation.description,
+            summary = operation.summary,
+            description = operation.description,
             tags = tags
         )
     }
