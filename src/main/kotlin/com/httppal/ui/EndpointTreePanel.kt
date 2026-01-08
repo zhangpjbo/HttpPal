@@ -21,10 +21,12 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.launch
 import java.awt.*
 import java.awt.event.ActionEvent
@@ -194,13 +196,24 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         tree.isRootVisible = false // Hide root node for cleaner look
         tree.showsRootHandles = true
         tree.cellRenderer = treeRenderer
-        //tree.font = UIUtil.getLabelFont()
-        // Improve tree appearance
+        
+        // Configure tree appearance for better theme support
         tree.border = JBUI.Borders.empty(5)
         
-        // Customize selection colors to match IntelliJ theme
-        /*tree.putClientProperty("JTree.selectionBackground", JBColor.BLUE)
-        tree.putClientProperty("JTree.selectionForeground", JBColor.BLACK)*/
+        // Set theme-appropriate selection colors
+        tree.selectionModel.selectionMode = javax.swing.tree.TreeSelectionModel.SINGLE_TREE_SELECTION
+        
+        // Configure tree colors for better visibility in both themes
+        tree.background = UIUtil.getTreeBackground()
+        tree.foreground = UIUtil.getTreeForeground()
+        
+        // Set selection colors using client properties for better theme support
+        tree.putClientProperty("JTree.selectionBackground", UIUtil.getTreeSelectionBackground())
+        tree.putClientProperty("JTree.selectionForeground", UIUtil.getTreeSelectionForeground())
+        tree.putClientProperty("JTree.selectionBorderColor", UIUtil.getTreeSelectionBorderColor())
+        
+        // Set row height for better readability
+        tree.rowHeight = 20
         
         // Expand root by default
         tree.expandPath(TreePath(rootNode.path))
@@ -1484,15 +1497,10 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                     
                     // Customize appearance for endpoint nodes
                     if (!sel) { // Only customize non-selected items
-                        foreground = when (userObject.method) {
-                            HttpMethod.GET -> Color(41, 121, 255) // Blue for GET
-                            HttpMethod.POST -> Color(220, 90, 10) // Orange for POST
-                            HttpMethod.PUT -> Color(255, 150, 0) // Orange for PUT
-                            HttpMethod.DELETE -> Color(220, 50, 50) // Red for DELETE
-                            HttpMethod.PATCH -> Color(180, 80, 220) // Purple for PATCH
-                            HttpMethod.HEAD -> Color(100, 100, 100) // Gray for HEAD
-                            HttpMethod.OPTIONS -> Color(80, 180, 80) // Green for OPTIONS
-                        }
+                        foreground = getMethodColor(userObject.method)
+                    } else {
+                        // Use theme-appropriate selection text color
+                        foreground = UIUtil.getTreeSelectionForeground()
                     }
                 }
                 is ClassNodeData -> {
@@ -1505,13 +1513,15 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                         text = displayText
                     }
                     
-                    icon = createFolderIcon(Color(0, 100, 0)) // Green folder icon for class nodes
+                    icon = createFolderIcon(getClassNodeColor()) // Theme-appropriate folder icon for class nodes
                     toolTipText = "Controller class: ${userObject.className}"
                     
                     // Customize appearance for class nodes
                     if (!sel) {
                         font = font.deriveFont(font.style or java.awt.Font.BOLD) // Bold for class nodes
-                        foreground = Color(0, 100, 0) // Dark green for class nodes
+                        foreground = getClassNodeColor() // Theme-appropriate color for class nodes
+                    } else {
+                        foreground = UIUtil.getTreeSelectionForeground()
                     }
                 }
                 is TagNodeData -> {
@@ -1530,7 +1540,9 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                     // Customize appearance for tag nodes
                     if (!sel) {
                         font = font.deriveFont(font.style or java.awt.Font.BOLD) // Bold for tag nodes
-                        foreground = Color(0, 0, 180) // Blue for tag nodes
+                        foreground = getTagNodeColor() // Theme-appropriate color for tag nodes
+                    } else {
+                        foreground = UIUtil.getTreeSelectionForeground()
                     }
                 }
                 is String -> {
@@ -1558,7 +1570,10 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                             icon = createMethodNodeIcon()
                             toolTipText = "Method: $displayText"
                             if (!sel) {
-                                foreground = Color(100, 50, 150) // Purple for methods
+                                foreground = JBColor(
+                                    Color(100, 50, 150),    // Light theme: purple
+                                    Color(180, 120, 230)    // Dark theme: lighter purple
+                                ) // Purple for methods
                             }
                         }
                         else -> {
@@ -1594,24 +1609,25 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
             return object : Icon {
                 override fun paintIcon(c: Component?, g: Graphics?, x: Int, y: Int) {
                     g?.let {
-                        // Draw filled rectangle as background
-                        it.color = Color(245, 245, 245) // Light gray background
+                        // Draw filled rectangle as background with theme-appropriate color
+                        it.color = JBColor(
+                            Color(245, 245, 245),  // Light theme: light gray
+                            Color(60, 63, 65)      // Dark theme: dark gray
+                        )
                         it.fillRect(x, y, iconWidth, iconHeight)
+                        
+                        // Draw border
+                        it.color = JBColor(
+                            Color(200, 200, 200),  // Light theme: medium gray border
+                            Color(100, 100, 100)   // Dark theme: lighter gray border
+                        )
+                        it.drawRect(x, y, iconWidth - 1, iconHeight - 1)
                         
                         // Draw method abbreviation
                         it.color = color
-                        ///it.font = it.font.deriveFont(13f)
                         
-                        // Get method initial
-                        val methodInitial = when (color) {
-                            Color(41, 121, 255) -> "G" // GET
-                            Color(220, 90, 10) -> "P" // POST
-                            Color(255, 150, 0) -> "U" // PUT
-                            Color(220, 50, 50) -> "D" // DELETE
-                            Color(180, 80, 220) -> "A" // PATCH (P is already used)
-                            Color(100, 100, 100) -> "H" // HEAD
-                            else -> "O" // OPTIONS
-                        }
+                        // Get method initial based on the actual color values
+                        val methodInitial = getMethodInitialFromColor(color)
                         
                         // Center the text
                         val fm = it.fontMetrics
@@ -1626,6 +1642,36 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 
                 override fun getIconWidth(): Int = 16
                 override fun getIconHeight(): Int = 16
+            }
+        }
+        
+        /**
+         * Get method initial letter from color (works with both light and dark theme colors)
+         */
+        private fun getMethodInitialFromColor(color: Color): String {
+            // Check if it's a JBColor and get the appropriate color for current theme
+            val actualColor = if (color is JBColor) {
+                if (UIUtil.isUnderDarcula()) color.darkVariant else color
+            } else {
+                color
+            }
+            
+            // Determine method based on color characteristics
+            return when {
+                // Blue tones (GET)
+                actualColor.blue > actualColor.red && actualColor.blue > actualColor.green -> "G"
+                // Red tones (DELETE)
+                actualColor.red > 200 && actualColor.green < 150 && actualColor.blue < 150 -> "D"
+                // Orange/Yellow tones (POST, PUT)
+                actualColor.red > 200 && actualColor.green > 100 -> {
+                    if (actualColor.green > 150) "U" else "P" // PUT vs POST
+                }
+                // Purple tones (PATCH)
+                actualColor.red > 150 && actualColor.blue > 150 && actualColor.green < 150 -> "A"
+                // Green tones (OPTIONS)
+                actualColor.green > actualColor.red && actualColor.green > actualColor.blue -> "O"
+                // Gray tones (HEAD)
+                else -> "H"
             }
         }
         
@@ -1694,9 +1740,17 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 override fun paintIcon(c: Component?, g: Graphics?, x: Int, y: Int) {
                     g?.let {
                         it.color = color
-                        // Draw folder shape
+                        // Draw folder shape with better visibility
                         it.fillRect(x + 2, y + 6, 12, 8)
                         it.fillRect(x + 2, y + 4, 6, 2)
+                        
+                        // Add border for better definition
+                        it.color = JBColor(
+                            Color(0, 80, 0),       // Light theme: darker green border
+                            Color(80, 160, 80)     // Dark theme: lighter green border
+                        )
+                        it.drawRect(x + 2, y + 6, 11, 7)
+                        it.drawRect(x + 2, y + 4, 5, 1)
                     }
                 }
                 
@@ -1712,15 +1766,26 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
             return object : Icon {
                 override fun paintIcon(c: Component?, g: Graphics?, x: Int, y: Int) {
                     g?.let {
-                        it.color = Color(0, 0, 180)
+                        // Use theme-appropriate tag color
+                        it.color = getTagNodeColor()
                         // Draw tag shape (like a label)
                         val xPoints = intArrayOf(x + 2, x + 12, x + 14, x + 12, x + 2)
                         val yPoints = intArrayOf(y + 4, y + 4, y + 8, y + 12, y + 12)
                         it.fillPolygon(xPoints, yPoints, 5)
                         
-                        // Draw hole in tag
-                        it.color = Color.WHITE
+                        // Draw hole in tag with theme-appropriate color
+                        it.color = JBColor(
+                            Color.WHITE,            // Light theme: white hole
+                            Color(60, 63, 65)      // Dark theme: dark hole
+                        )
                         it.fillOval(x + 4, y + 7, 2, 2)
+                        
+                        // Add border for better definition
+                        it.color = JBColor(
+                            Color(0, 0, 120),      // Light theme: darker blue border
+                            Color(80, 80, 200)     // Dark theme: lighter blue border
+                        )
+                        it.drawPolygon(xPoints, yPoints, 5)
                     }
                 }
                 
@@ -1736,7 +1801,11 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
             return object : Icon {
                 override fun paintIcon(c: Component?, g: Graphics?, x: Int, y: Int) {
                     g?.let {
-                        it.color = Color(100, 50, 150)
+                        // Use theme-appropriate method node color
+                        it.color = JBColor(
+                            Color(150, 100, 200),   // Light theme: purple
+                            Color(180, 140, 240)   // Dark theme: brighter purple
+                        )
                         // Draw method symbol (M)
                         it.fillRect(x + 3, y + 4, 2, 8)
                         it.fillRect(x + 5, y + 5, 2, 2)
@@ -1753,7 +1822,7 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
         
         /**
          * Highlight matching text in the display string
-         * Uses HTML to apply background color to matching keywords
+         * Uses HTML to apply background color to matching keywords with theme-appropriate colors
          */
         private fun highlightText(text: String, filterText: String): String {
             if (filterText.isBlank()) {
@@ -1769,17 +1838,80 @@ class EndpointTreePanel(private val project: Project) : JPanel(BorderLayout()) {
                 return text
             }
             
+            // Get theme-appropriate highlight colors
+            val (backgroundColor, textColor) = if (UIUtil.isUnderDarcula()) {
+                "#4A4A00" to "#FFFF80"  // Dark theme: dark yellow background, light yellow text
+            } else {
+                "#FFFF00" to "#000000"  // Light theme: bright yellow background, black text
+            }
+            
             // Build HTML with highlighted keywords
             var highlightedText = text
             keywords.forEach { keyword ->
                 // Case-insensitive replacement with HTML highlighting
                 val regex = Regex(Regex.escape(keyword), RegexOption.IGNORE_CASE)
                 highlightedText = regex.replace(highlightedText) { matchResult ->
-                    "<span style='background-color: #FFFF00; color: #000000;'>${matchResult.value}</span>"
+                    "<span style='background-color: $backgroundColor; color: $textColor;'>${matchResult.value}</span>"
                 }
             }
             
             return "<html>$highlightedText</html>"
+        }
+        
+        /**
+         * Get theme-appropriate color for HTTP method
+         */
+        private fun getMethodColor(method: HttpMethod): Color {
+            return when (method) {
+                HttpMethod.GET -> JBColor(
+                    Color(41, 121, 255),    // Light theme: bright blue
+                    Color(100, 150, 255)    // Dark theme: lighter blue
+                )
+                HttpMethod.POST -> JBColor(
+                    Color(220, 90, 10),     // Light theme: orange
+                    Color(255, 140, 60)     // Dark theme: lighter orange
+                )
+                HttpMethod.PUT -> JBColor(
+                    Color(255, 150, 0),     // Light theme: orange
+                    Color(255, 180, 80)     // Dark theme: lighter orange
+                )
+                HttpMethod.DELETE -> JBColor(
+                    Color(220, 50, 50),     // Light theme: red
+                    Color(255, 100, 100)    // Dark theme: lighter red
+                )
+                HttpMethod.PATCH -> JBColor(
+                    Color(180, 80, 220),    // Light theme: purple
+                    Color(200, 120, 240)    // Dark theme: lighter purple
+                )
+                HttpMethod.HEAD -> JBColor(
+                    Color(100, 100, 100),   // Light theme: gray
+                    Color(160, 160, 160)    // Dark theme: lighter gray
+                )
+                HttpMethod.OPTIONS -> JBColor(
+                    Color(80, 180, 80),     // Light theme: green
+                    Color(120, 200, 120)    // Dark theme: lighter green
+                )
+            }
+        }
+        
+        /**
+         * Get theme-appropriate color for class nodes
+         */
+        private fun getClassNodeColor(): Color {
+            return JBColor(
+                Color(0, 120, 0),       // Light theme: dark green
+                Color(100, 200, 100)    // Dark theme: light green
+            )
+        }
+        
+        /**
+         * Get theme-appropriate color for tag nodes
+         */
+        private fun getTagNodeColor(): Color {
+            return JBColor(
+                Color(0, 0, 180),       // Light theme: dark blue
+                Color(120, 120, 255)    // Dark theme: light blue
+            )
         }
     }
 }
