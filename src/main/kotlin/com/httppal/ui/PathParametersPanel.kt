@@ -119,25 +119,59 @@ class PathParametersPanel(private val project: Project) : JPanel(BorderLayout())
      * Set parameter values
      */
     fun setParameters(params: Map<String, String>) {
+        // Log before setting
+        com.httppal.util.LoggingUtils.logWithContext(
+            com.httppal.util.LoggingUtils.LogLevel.DEBUG,
+            "Setting path parameter values",
+            mapOf(
+                "paramCount" to params.size,
+                "params" to params.keys.joinToString(", "),
+                "values" to params.values.joinToString(", "),
+                "existingParams" to tableModel.getAllParameters().map { it.name }.joinToString(", ")
+            )
+        )
+
+        var anyUpdated = false
         params.forEach { (name, value) ->
-            tableModel.setParameterValue(name, value)
+            val updated = tableModel.setParameterValue(name, value)
+            if (updated) anyUpdated = true
         }
-        onParametersChanged?.invoke(getParameters())
+
+        // Log after setting
+        val currentParams = getParameters()
+        com.httppal.util.LoggingUtils.logWithContext(
+            com.httppal.util.LoggingUtils.LogLevel.DEBUG,
+            "Path parameter values set",
+            mapOf(
+                "resultParams" to currentParams.keys.joinToString(", "),
+                "resultValues" to currentParams.values.joinToString(", ")
+            )
+        )
+
+        // Force update visibility to ensure panel is shown when parameters exist
+        updateVisibility()
+
+        // Force table refresh
+        table.revalidate()
+        table.repaint()
+
+        // Trigger callback only if at least one parameter was updated
+        if (anyUpdated) {
+            onParametersChanged?.invoke(getParameters())
+        }
     }
 
     /**
      * Set parameters from list of EndpointParameter objects (to include descriptions)
+     * Merges with existing parameters to preserve values and metadata
      */
     fun setParametersList(params: List<EndpointParameter>) {
-        // Clear existing parameters first to ensure complete replacement
-        tableModel.clear()
-        
+        // Use merge logic instead of clear and rebuild
         params.forEach { param ->
-            val existingValue = tableModel.getParameterValue(param.name)
-            tableModel.addRow(
+            tableModel.updateOrAddParameter(
                 PathParameter(
                     name = param.name,
-                    value = if (existingValue.isNotBlank()) existingValue else (param.defaultValue ?: ""),
+                    value = param.defaultValue ?: "",
                     description = param.description ?: "",
                     required = param.required,
                     type = param.dataType ?: "String"
@@ -145,7 +179,7 @@ class PathParametersPanel(private val project: Project) : JPanel(BorderLayout())
             )
         }
         
-        // Add empty row if needed
+        // Update visibility
         if (params.isNotEmpty()) {
             updateVisibility()
         }
@@ -157,11 +191,68 @@ class PathParametersPanel(private val project: Project) : JPanel(BorderLayout())
      */
     fun applyToUrl(urlTemplate: String): String {
         var result = urlTemplate
+        val params = getParameters()
+        val replacedParams = mutableListOf<String>()
+        val missingParams = mutableListOf<String>()
+        
+        // Log input
+        com.httppal.util.LoggingUtils.logWithContext(
+            com.httppal.util.LoggingUtils.LogLevel.DEBUG,
+            "Applying path parameters to URL",
+            mapOf(
+                "urlTemplate" to urlTemplate,
+                "availableParams" to params.keys.joinToString(", "),
+                "paramValues" to params.entries.joinToString(", ") { "${it.key}=${it.value}" }
+            )
+        )
+        
         getParameters().forEach { (name, value) ->
-            if (value.isNotBlank()) {
-                result = result.replace("{$name}", value)
+            val placeholder = "{$name}"
+            if (urlTemplate.contains(placeholder)) {
+                if (value.isNotBlank()) {
+                    result = result.replace(placeholder, value)
+                    replacedParams.add(name)
+                } else {
+                    missingParams.add(name)
+                }
             }
         }
+        
+        // Log warning if any parameters are missing
+        if (missingParams.isNotEmpty()) {
+            com.httppal.util.LoggingUtils.logWithContext(
+                com.httppal.util.LoggingUtils.LogLevel.WARN,
+                "Path parameters with empty values were not replaced",
+                mapOf(
+                    "missingParams" to missingParams.joinToString(", "),
+                    "urlTemplate" to urlTemplate
+                )
+            )
+        }
+        
+        // Log successful replacements at DEBUG level
+        if (replacedParams.isNotEmpty()) {
+            com.httppal.util.LoggingUtils.logWithContext(
+                com.httppal.util.LoggingUtils.LogLevel.DEBUG,
+                "Path parameters successfully applied to URL",
+                mapOf(
+                    "replacedCount" to replacedParams.size,
+                    "replacedParams" to replacedParams.joinToString(", "),
+                    "originalUrl" to urlTemplate,
+                    "resultUrl" to result
+                )
+            )
+        } else {
+            com.httppal.util.LoggingUtils.logWithContext(
+                com.httppal.util.LoggingUtils.LogLevel.WARN,
+                "No path parameters were replaced in URL",
+                mapOf(
+                    "urlTemplate" to urlTemplate,
+                    "availableParams" to params.keys.joinToString(", ")
+                )
+            )
+        }
+        
         return result
     }
     
@@ -262,11 +353,22 @@ class PathParametersPanel(private val project: Project) : JPanel(BorderLayout())
             }
         }
         
-        fun setParameterValue(name: String, value: String) {
-            data.find { it.name == name }?.let { param ->
+        fun setParameterValue(name: String, value: String): Boolean {
+            val param = data.find { it.name == name }
+            if (param != null) {
+                // Only update the value field, preserve all other metadata
                 param.value = value
                 val index = data.indexOf(param)
                 fireTableCellUpdated(index, 1)
+                return true
+            } else {
+                // Log warning if parameter not found
+                com.httppal.util.LoggingUtils.logWithContext(
+                    com.httppal.util.LoggingUtils.LogLevel.WARN,
+                    "Attempted to set value for non-existent path parameter",
+                    mapOf("parameterName" to name, "value" to value)
+                )
+                return false
             }
         }
         
@@ -278,13 +380,14 @@ class PathParametersPanel(private val project: Project) : JPanel(BorderLayout())
             return data.find { it.name == name }?.value ?: ""
         }
 
-        fun udpateOrAddParameter(param: PathParameter) {
+        fun updateOrAddParameter(param: PathParameter) {
             val existingIndex = data.indexOfFirst { it.name == param.name }
             if (existingIndex != -1) {
                 val existing = data[existingIndex]
+                // Preserve existing value and description if they are not blank
                 data[existingIndex] = existing.copy(
-                    value = if (existing.value.isBlank()) param.value else existing.value,
-                    description = if (existing.description.isBlank()) param.description else existing.description,
+                    value = if (existing.value.isNotBlank()) existing.value else param.value,
+                    description = if (existing.description.isNotBlank()) existing.description else param.description,
                     required = param.required,
                     type = param.type
                 )

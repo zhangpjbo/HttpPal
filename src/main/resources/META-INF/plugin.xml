@@ -5,7 +5,7 @@
     <version>1.0.0</version>
     <vendor email="support@httppal.com" url="https://httppal.com">HttpPal Team</vendor>
     
-    <idea-version since-build="251" until-build="252.*"/>
+    <idea-version since-build="251" until-build="*"/>
 
     <!-- Resource Bundle -->
     <resource-bundle>messages.HttpPalBundle</resource-bundle>
@@ -13,7 +13,7 @@
     HttpPal is a comprehensive HTTP/WebSocket client plugin for JetBrains IDEs that provides developers with
     integrated API testing capabilities directly within their development environment.
 
-    <strong>Supports IntelliJ IDEA 2025.1 and 2025.2</strong>
+    <strong>Supports IntelliJ IDEA 2025.1+</strong>
 
     Key Features:
     • Automatic REST API endpoint discovery from Spring MVC and JAX-RS annotations
@@ -31,7 +31,7 @@
     without leaving their IDE. Supports both discovered endpoints from code and manually configured external APIs.
 
     <strong>Requirements:</strong>
-    • IntelliJ IDEA 2025.1 or 2025.2
+    • IntelliJ IDEA 2025.1+
     • JDK 17 or later
     ]]></description>
     

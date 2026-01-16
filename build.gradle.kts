@@ -44,16 +44,15 @@ dependencies {
 
     implementation("io.swagger.parser.v3:swagger-parser:2.1.37")
     
-    // Mock data generation
+    // Mock data generation for HTTP requests
     implementation("net.datafaker:datafaker:2.5.1")
+    implementation("com.github.curious-odd-man:rgxgen:2.0") // Regex pattern generation
 
-    // Testing dependencies
+    // Testing dependencies (optional, for future unit tests)
     testImplementation("io.kotest:kotest-runner-junit5:5.9.1")
     testImplementation("io.kotest:kotest-assertions-core:5.9.1")
     testImplementation("io.kotest:kotest-property:5.9.1")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.11.3")
-    testImplementation("org.mockito:mockito-core:5.14.2")
-    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
 }
 
 tasks {
@@ -100,8 +99,8 @@ intellijPlatform {
 
         ideaVersion {
             // *** Updated sinceBuild ***
-            sinceBuild = "251" // For 2025.2
-            untilBuild = "252.*" // Keep as is, or adjust/remove if needed
+            sinceBuild = "251" // For 2025.1+
+            untilBuild = null // Allow compatibility with future versions
         }
 
         changeNotes = """

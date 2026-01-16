@@ -174,11 +174,21 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.weighty = 0.0
         pathParametersPanel.onParametersChanged = { params ->
             // Update URL when path parameters change
-            val currentUrl = enhancedUrlField.getText()
-            val updatedUrl = pathParametersPanel.applyToUrl(currentUrl)
-            if (updatedUrl != currentUrl) {
-                enhancedUrlField.setText(updatedUrl)
-            }
+            // Use the original endpoint path as template to ensure placeholders are available
+            val templateUrl = currentEndpoint?.path ?: enhancedUrlField.getText().split("?")[0]
+            val updatedUrl = pathParametersPanel.applyToUrl(templateUrl)
+            enhancedUrlField.setText(updatedUrl)
+
+            // Log URL update
+            LoggingUtils.logWithContext(
+                LoggingUtils.LogLevel.DEBUG,
+                "URL updated via path parameters callback",
+                mapOf(
+                    "templateUrl" to templateUrl,
+                    "updatedUrl" to updatedUrl,
+                    "params" to params.toString()
+                )
+            )
         }
         mainPanel.add(pathParametersPanel, gbc)
         
@@ -1164,9 +1174,24 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
         val pathParams = endpoint.parameters.filter { it.type == ParameterType.PATH }
         val queryParams = endpoint.parameters.filter { it.type == ParameterType.QUERY }
         val headerParams = endpoint.parameters.filter { it.type == ParameterType.HEADER }
-        
+
         // Update Path Parameters Panel (clears existing and sets new parameters with full details)
-        pathParametersPanel.setParametersList(pathParams)
+        // Generate initial mock values for path parameters if they don't have default/example values
+        val pathParamsWithValues = pathParams.map { param ->
+            if (param.defaultValue.isNullOrBlank() && param.example.isNullOrBlank()) {
+                // Generate a mock value for this parameter
+                val mockValue = mockDataGeneratorService.generateFormattedValue(
+                    type = param.dataType ?: "string",
+                    format = null,
+                    constraints = emptyMap()
+                )?.toString() ?: "value"
+
+                param.copy(defaultValue = mockValue)
+            } else {
+                param
+            }
+        }
+        pathParametersPanel.setParametersList(pathParamsWithValues)
         
         // Update Query Parameters Panel (clears existing and sets new parameters with full details)
         val uiQueryParams = queryParams.map { 
@@ -1884,18 +1909,29 @@ class RequestConfigurationPanel(private val project: Project) : JPanel(BorderLay
             
             // 在 EDT 线程中更新 UI
             ApplicationManager.getApplication().invokeLater {
-                // Populate path parameters panel
-                pathParametersPanel.updateFromUrl(endpoint.path)
+                // Don't call setParametersList here, as it may reset values
+                // Path parameters should already be initialized from populateFromEndpoint
+                // Just update the values directly
                 pathParametersPanel.setParameters(mockData.pathParameters)
-                
+
+                // Log path parameter update
+                if (mockData.pathParameters.isNotEmpty()) {
+                    LoggingUtils.logWithContext(
+                        LoggingUtils.LogLevel.DEBUG,
+                        "Path parameters populated with mock data",
+                        mapOf(
+                            "paramCount" to mockData.pathParameters.size,
+                            "params" to mockData.pathParameters.keys.joinToString(", "),
+                            "values" to mockData.pathParameters.values.joinToString(", ")
+                        )
+                    )
+                }
+
                 // Populate query parameters panel
                 queryParametersPanel.setParameters(mockData.queryParameters)
-                
-                // Update URL (applying path and query params)
-                var url = endpoint.path
-                url = pathParametersPanel.applyToUrl(url)
-                url = queryParametersPanel.appendToUrl(url)
-                enhancedUrlField.setText(url)
+
+                // Note: URL will be automatically updated by pathParametersPanel.onParametersChanged callback
+                // and queryParametersPanel will append query params when needed
                 
                 // Fill headers
                 val model = headersTable.model as DefaultTableModel

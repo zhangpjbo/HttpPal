@@ -58,15 +58,17 @@ interface MockDataGeneratorService {
     
     /**
      * 生成数组类型的 mock 数据
-     * 
+     *
      * @param itemSchema 数组元素 schema
      * @param minItems 最小元素数
      * @param maxItems 最大元素数
+     * @param uniqueItems 是否要求元素唯一
      * @return 生成的数组
      */
     fun generateArrayData(
         itemSchema: SchemaInfo,
         minItems: Int?,
-        maxItems: Int?
+        maxItems: Int?,
+        uniqueItems: Boolean = false
     ): List<Any?>
 }
